@@ -1,0 +1,112 @@
+# Кластер MongoDB (етап 10-11): 3 шарди + сервер конфігурації + маршрутизатор mongos.
+#
+# Запуск із кореня репозиторію:
+#   docker compose -f docker/docker-compose.mongo.yml up -d
+# Перевірка, що 3 шарди підключено:
+#   docker exec -it mongos mongosh --quiet --eval "sh.status()"
+# Зупинка (дані лишаються в томах):
+#   docker compose -f docker/docker-compose.mongo.yml down
+#
+# Застосунок підключається лише до mongos: mongodb://localhost:27017.
+# Кожен шард і сервер конфігурації - це replica set з одного вузла
+# (репліки по 3 вузли додамо на бонусному етапі).
+name: medicine-mongo
+
+services:
+  configsvr:
+    image: mongo:7.0
+    container_name: mongo-config
+    command: ["mongod", "--configsvr", "--replSet", "cfgrs", "--port", "27019",
+              "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes:
+      - config_data:/data/configdb
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27019", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  shard1:
+    image: mongo:7.0
+    container_name: mongo-shard1
+    command: ["mongod", "--shardsvr", "--replSet", "shard1rs", "--port", "27018",
+              "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - shard1_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  shard2:
+    image: mongo:7.0
+    container_name: mongo-shard2
+    command: ["mongod", "--shardsvr", "--replSet", "shard2rs", "--port", "27018",
+              "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - shard2_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  shard3:
+    image: mongo:7.0
+    container_name: mongo-shard3
+    command: ["mongod", "--shardsvr", "--replSet", "shard3rs", "--port", "27018",
+              "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - shard3_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  mongos:
+    image: mongo:7.0
+    container_name: mongos
+    command: ["mongos", "--configdb", "cfgrs/configsvr:27019", "--port", "27017", "--bind_ip_all"]
+    ports:
+      - "27017:27017"                  # єдиний порт назовні: точка входу застосунку
+    depends_on:
+      configsvr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Одноразовий контейнер: ініціалізує replica set-и і реєструє шарди в mongos, потім завершується.
+  mongo-init:
+    image: mongo:7.0
+    container_name: mongo-init
+    command: ["mongosh", "--nodb", "--quiet", "--file", "/init/init-cluster.js"]
+    volumes:
+      - ./mongo-init:/init:ro
+    depends_on:
+      configsvr:
+        condition: service_healthy
+      shard1:
+        condition: service_healthy
+      shard2:
+        condition: service_healthy
+      shard3:
+        condition: service_healthy
+      mongos:
+        condition: service_started
+    restart: "no"
+
+volumes:
+  config_data:
+  shard1_data:
+  shard2_data:
+  shard3_data:
