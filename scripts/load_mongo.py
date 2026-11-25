@@ -81,7 +81,8 @@ async def main() -> None:
 
         if args.drop:
             await client[settings.mongo.database]["medicines"].drop()
-            print("Колекцію medicines видалено")
+            await client[settings.mongo.database]["ingest_log"].drop()
+            print("Колекції medicines та ingest_log видалено")
         if await documents.ensure_sharding():
             print("Колекцію зашардовано і розбито на 3 діапазони за ключем {therapeutic_class, medicine_id}")
         await documents.ensure_indexes()
