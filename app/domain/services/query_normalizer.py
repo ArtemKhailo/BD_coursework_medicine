@@ -7,5 +7,6 @@ class QueryNormalizer:
         """Нижній регістр + слова за алфавітом -> стабільний ключ кешу.
 
         «Bacterial Infections» і «infections bacterial» мають давати однаковий результат.
+        Та сама логіка, що й normalize_query у scripts/process_dataset.py.
         """
-        raise NotImplementedError
+        return " ".join(sorted((raw or "").lower().split()))

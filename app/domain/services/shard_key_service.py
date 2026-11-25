@@ -6,6 +6,8 @@ from uuid import UUID
 
 from app.domain.entities.medicine import Medicine
 
+UNKNOWN_CLASS = "unknown"   # те саме значення, що й у scripts/process_dataset.py
+
 
 @dataclass(frozen=True)
 class ShardKey:
@@ -16,5 +18,10 @@ class ShardKey:
 
 class ShardKeyService:
     def compute(self, medicine: Medicine) -> ShardKey:
-        """Будує ShardKey; порожній therapeutic_class замінює на 'unknown'."""
-        raise NotImplementedError
+        """Будує ShardKey; порожній therapeutic_class замінює на 'unknown'.
+
+        Ключ шардінгу в MongoDB не може бути відсутнім або null, інакше всі такі
+        документи потрапили б в один діапазон. Тому порожній клас нормалізується.
+        """
+        therapeutic_class = (medicine.therapeutic_class or "").strip() or UNKNOWN_CLASS
+        return ShardKey(therapeutic_class=therapeutic_class, medicine_id=medicine.medicine_id)

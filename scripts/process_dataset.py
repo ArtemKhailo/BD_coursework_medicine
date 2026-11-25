@@ -30,7 +30,7 @@ MANUFACTURERS = [
     "Quantis Pharma", "Raventa Labs", "Silvera Medical", "Dravon Biopharma",
 ]
 UNKNOWN_CLASS = "unknown"
-
+IN_STOCK_SHARE =0.85
 
 def norm(value) -> str | None:
     """Нормалізація тексту: trim + нижній регістр; порожнє -> None."""
@@ -109,12 +109,12 @@ def process_medical_dataset(file_path: str) -> tuple[pd.DataFrame, dict]:
     df["price"] = rng.uniform(50.0, 1500.0, len(df)).round(2)
     df["manufacturer"] = rng.choice(MANUFACTURERS, len(df))
     df["is_prescription"] = df["is_habit_forming"] | (rng.random(len(df)) < 0.5)
+    df["in_stock"] = rng.random(len(df))<IN_STOCK_SHARE
 
     columns = [
         "medicine_id", "source_id", "name", "chemical_class", "therapeutic_class",
         "action_class", "is_habit_forming", "is_prescription", "manufacturer",
-        "substitutes", "uses", "side_effects", "full_description", "price",
-    ]
+        "substitutes", "uses", "side_effects", "full_description", "price","in_stock",]
     clean = df[columns].copy()
     for col in ("chemical_class", "action_class"):
         clean[col] = clean[col].astype(object).where(clean[col].notna(), None)

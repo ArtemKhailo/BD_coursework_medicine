@@ -34,6 +34,7 @@ class MedicineController:
         self,
         is_prescription: bool | None = None,
         price_max: float | None = None,
+        in_stock: bool | None = None,
         therapeutic_class: str | None = None,
         chemical_class: str | None = None,
         limit: int = Query(20, ge=1, le=100),

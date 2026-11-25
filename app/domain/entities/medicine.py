@@ -12,7 +12,7 @@ from uuid import UUID
 @dataclass
 class Medicine:
     medicine_id: UUID               # UUID5 від name
-    source_id: int                  # id у вихідному датасеті
+    source_id: int                  # id у вихідному датасеті (0 - створено через API)
     name: str
     therapeutic_class: str          # частина ключа шардінгу; "unknown", якщо порожнє
     is_habit_forming: bool
@@ -24,3 +24,4 @@ class Medicine:
     uses: list[str] = field(default_factory=list)
     side_effects: list[str] = field(default_factory=list)
     substitutes: list[str] = field(default_factory=list)
+    in_stock: bool = True           # генерується програмно (~85% препаратів у наявності)

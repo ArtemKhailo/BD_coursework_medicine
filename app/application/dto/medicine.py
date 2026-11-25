@@ -17,6 +17,7 @@ class MedicineCard(BaseModel):
     is_prescription: bool
     manufacturer: str
     price: float
+    in_stock: bool = True
     uses: list[str] = Field(default_factory=list)
     side_effects: list[str] = Field(default_factory=list)
     substitutes: list[str] = Field(default_factory=list)
@@ -31,6 +32,7 @@ class MedicineCreateDto(BaseModel):
     is_prescription: bool = False
     manufacturer: str
     price: float = Field(ge=50.0, le=1500.0)
+    in_stock: bool = True
     uses: list[str] = Field(default_factory=list)
     side_effects: list[str] = Field(default_factory=list)
     substitutes: list[str] = Field(default_factory=list)
@@ -44,6 +46,7 @@ class MedicineUpdateDto(BaseModel):
     is_prescription: bool | None = None
     manufacturer: str | None = None
     price: float | None = Field(default=None, ge=50.0, le=1500.0)
+    in_stock: bool | None = None
     uses: list[str] | None = None
     side_effects: list[str] | None = None
     substitutes: list[str] | None = None
@@ -53,6 +56,7 @@ class MedicineListQuery(BaseModel):
     """Фільтрація за параметрами (запит №2)."""
     is_prescription: bool | None = None
     price_max: float | None = None
+    in_stock: bool | None = None
     therapeutic_class: str | None = None
     chemical_class: str | None = None
     limit: int = Field(default=20, ge=1, le=100)
