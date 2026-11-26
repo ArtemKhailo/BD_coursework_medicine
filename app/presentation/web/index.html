@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medicine Catalog</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f5f7fa;
+            color: #263445;
+        }
+
+        header {
+            background: #176c82;
+            color: white;
+            padding: 24px 8%;
+        }
+
+        header h1 {
+            margin: 0 0 8px;
+        }
+
+        header p {
+            margin: 0;
+            opacity: 0.85;
+        }
+
+        main {
+            max-width: 1150px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .panel,
+        .medicine-card {
+            background: white;
+            padding: 22px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        input,
+        select {
+            display: block;
+            width: 100%;
+            padding: 11px;
+            margin-top: 7px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #176c82;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover:not(:disabled) {
+            background: #12586a;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            margin: 28px 0 16px;
+        }
+
+        .results-header h2 {
+            margin: 0;
+        }
+
+        #medicines {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+            gap: 16px;
+        }
+
+        .medicine-card {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .medicine-card h3 {
+            margin: 0 0 12px;
+        }
+
+        .medicine-card p {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+
+        .price {
+            margin-top: 15px;
+            font-size: 19px;
+            font-weight: bold;
+            color: #176c82;
+        }
+
+        .details-button {
+            margin-top: 18px;
+            align-self: flex-start;
+        }
+
+        .status {
+            margin: 16px 0;
+            color: #64748b;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            margin: 25px 0;
+        }
+
+        /* Вікно детальної інформації */
+
+        #medicineDialog {
+            width: min(600px, 92%);
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 26px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            color: #263445;
+            background: white;
+        }
+
+        #medicineDialog::backdrop {
+            background: rgba(0, 0, 0, 0.45);
+        }
+
+        .dialog-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 18px;
+        }
+
+        .dialog-header h2 {
+            margin: 0;
+            font-size: 23px;
+        }
+
+        .detail-row {
+            padding: 14px 0;
+            border-bottom: 1px solid #e2e8f0;
+            line-height: 1.6;
+            overflow-wrap: anywhere;
+        }
+
+        .detail-label {
+            display: block;
+            font-size: 14px;
+            font-weight: bold;
+            color: #176c82;
+            margin-bottom: 5px;
+        }
+
+        .detail-value {
+            font-size: 14px;
+        }
+
+        /* Застосування та побічні ефекти */
+
+        .detail-list {
+            margin: 6px 0 0;
+            padding-left: 22px;
+            font-size: 14px;
+        }
+
+        .detail-list li {
+            margin-bottom: 6px;
+        }
+
+        /* Замінники препарату */
+
+        .detail-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .detail-tag {
+            display: inline-block;
+            background: #edf5f7;
+            border: 1px solid #d3e5eb;
+            color: #263445;
+            padding: 7px 11px;
+            border-radius: 7px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 600px) {
+            header {
+                padding: 22px 20px;
+            }
+
+            .results-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .dialog-header {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>Medicine Catalog</h1>
+    <p>Каталог лікарських засобів</p>
+</header>
+
+<main>
+    <section class="panel">
+        <h2>Фільтрація препаратів</h2>
+
+        <form id="filterForm">
+            <div class="filters">
+
+                <label>
+                    Терапевтичний клас
+                    <input
+                        id="therapeuticClass"
+                        placeholder="Наприклад: anti infectives"
+                    >
+                </label>
+
+                <label>
+                    Хімічний клас
+                    <input
+                        id="chemicalClass"
+                        placeholder="Введіть клас"
+                    >
+                </label>
+
+                <label>
+                    Максимальна ціна
+                    <input
+                        id="priceMax"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                    >
+                </label>
+
+                <label>
+                    Рецептурний препарат
+                    <select id="prescription">
+                        <option value="">Усі</option>
+                        <option value="true">Так</option>
+                        <option value="false">Ні</option>
+                    </select>
+                </label>
+
+                <label>
+                    Наявність
+                    <select id="inStock">
+                        <option value="">Усі</option>
+                        <option value="true">У наявності</option>
+                        <option value="false">Немає в наявності</option>
+                    </select>
+                </label>
+
+            </div>
+
+            <div class="actions">
+                <button type="submit">
+                    Застосувати фільтри
+                </button>
+
+                <button type="reset">
+                    Скинути
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <div class="results-header">
+        <h2>Список препаратів</h2>
+        <span id="totalCount"></span>
+    </div>
+
+    <p class="status" id="status">
+        Завантаження даних...
+    </p>
+
+    <div id="medicines"></div>
+
+    <div class="pagination">
+        <button id="prevButton" type="button">
+            Назад
+        </button>
+
+        <span id="pageNumber">
+            Сторінка 1
+        </span>
+
+        <button id="nextButton" type="button">
+            Далі
+        </button>
+    </div>
+</main>
+
+<!-- Детальна інформація про препарат -->
+
+<dialog id="medicineDialog">
+    <div class="dialog-header">
+        <h2 id="detailTitle">
+            Інформація про препарат
+        </h2>
+
+        <button id="closeDialog" type="button">
+            Закрити
+        </button>
+    </div>
+
+    <p id="detailStatus" class="status"></p>
+    <div id="detailContent"></div>
+</dialog>
+
+<script>
+    const limit = 20;
+
+    let offset = 0;
+    let total = 0;
+
+    const form = document.getElementById("filterForm");
+    const container = document.getElementById("medicines");
+    const status = document.getElementById("status");
+
+    const dialog = document.getElementById("medicineDialog");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailStatus = document.getElementById("detailStatus");
+    const detailContent = document.getElementById("detailContent");
+
+    const prevButton = document.getElementById("prevButton");
+    const nextButton = document.getElementById("nextButton");
+
+    // Додаємо заповнені поля до запиту
+
+    function addFilter(params, key, id) {
+        const value = document.getElementById(id).value.trim();
+
+        if (value !== "") {
+            params.set(key, value);
+        }
+    }
+
+    // Отримуємо список препаратів через REST API
+
+    async function loadMedicines() {
+        const params = new URLSearchParams({
+            limit: String(limit),
+            offset: String(offset)
+        });
+
+        addFilter(params, "therapeutic_class", "therapeuticClass");
+        addFilter(params, "chemical_class", "chemicalClass");
+        addFilter(params, "price_max", "priceMax");
+        addFilter(params, "is_prescription", "prescription");
+        addFilter(params, "in_stock", "inStock");
+
+        status.textContent = "Завантаження...";
+        container.replaceChildren();
+
+        try {
+            const response = await fetch(
+                `/api/medicines?${params.toString()}`
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            total = data.total;
+
+            document.getElementById("totalCount").textContent =
+                `Знайдено: ${total}`;
+
+            status.textContent = data.items.length
+                ? ""
+                : "За заданими параметрами препаратів не знайдено.";
+
+            // Створюємо картки препаратів
+
+            data.items.forEach(medicine => {
+                const card = document.createElement("article");
+                card.className = "medicine-card";
+
+                const title = document.createElement("h3");
+                title.textContent = medicine.name;
+
+                const category = document.createElement("p");
+                category.textContent =
+                    `Клас: ${medicine.therapeutic_class || "Не вказано"}`;
+
+                const manufacturer = document.createElement("p");
+                manufacturer.textContent =
+                    `Виробник: ${medicine.manufacturer || "Не вказано"}`;
+
+                const availability = document.createElement("p");
+                availability.textContent = medicine.in_stock
+                    ? "У наявності"
+                    : "Немає в наявності";
+
+                const price = document.createElement("div");
+                price.className = "price";
+
+                price.textContent = medicine.price != null
+                    ? `Ціна: ${medicine.price}`
+                    : "Ціна не вказана";
+
+                const detailsButton = document.createElement("button");
+                detailsButton.type = "button";
+                detailsButton.className = "details-button";
+                detailsButton.textContent = "Детальніше";
+
+                detailsButton.addEventListener("click", () => {
+                    const id =
+                        medicine.id ??
+                        medicine.medicine_id ??
+                        medicine._id;
+
+                    openMedicineDetails(id);
+                });
+
+                card.append(
+                    title,
+                    category,
+                    manufacturer,
+                    availability,
+                    price,
+                    detailsButton
+                );
+
+                container.appendChild(card);
+            });
+
+        } catch (error) {
+            console.error("Помилка завантаження:", error);
+
+            status.textContent =
+                "Не вдалося отримати дані з API. Перевірте підключення до сервера.";
+
+            document.getElementById("totalCount").textContent = "";
+            total = 0;
+        }
+
+        document.getElementById("pageNumber").textContent =
+            `Сторінка ${Math.floor(offset / limit) + 1}`;
+
+        prevButton.disabled = offset === 0;
+        nextButton.disabled = offset + limit >= total;
+    }
+
+    // Назви полів для відображення на сайті
+
+    const fieldNames = {
+        id: "Ідентифікатор",
+        medicine_id: "Ідентифікатор",
+        _id: "Ідентифікатор",
+        name: "Назва",
+        manufacturer: "Виробник",
+        therapeutic_class: "Терапевтичний клас",
+        chemical_class: "Хімічний клас",
+        price: "Ціна",
+        is_prescription: "Рецептурний препарат",
+        is_habit_forming: "Викликає звикання",
+        in_stock: "У наявності",
+        dosage_form: "Лікарська форма",
+        composition: "Склад",
+        description: "Опис",
+        uses: "Застосування",
+        side_effects: "Побічні ефекти",
+        substitutes: "Замінники препарату",
+        substitute: "Замінники препарату"
+    };
+
+    // Перетворюємо масиви або JSON-рядки на звичайні списки
+
+    function normalizeList(value) {
+        if (Array.isArray(value)) {
+            return value.map(item => String(item));
+        }
+
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+
+            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                try {
+                    const parsed = JSON.parse(trimmed);
+
+                    if (Array.isArray(parsed)) {
+                        return parsed.map(item => String(item));
+                    }
+                } catch (error) {
+                    // Якщо це не JSON, залишаємо звичайний текст
+                }
+            }
+
+            return trimmed ? [trimmed] : [];
+        }
+
+        if (value == null) {
+            return [];
+        }
+
+        return [String(value)];
+    }
+
+    // Створюємо рядок з назвою характеристики
+
+    function createDetailRow(labelText) {
+        const row = document.createElement("div");
+        row.className = "detail-row";
+
+        const label = document.createElement("div");
+        label.className = "detail-label";
+        label.textContent = labelText;
+
+        row.appendChild(label);
+
+        return row;
+    }
+
+    // Відкриваємо інформацію про конкретний препарат
+
+    async function openMedicineDetails(id) {
+        detailTitle.textContent = "Інформація про препарат";
+        detailStatus.textContent = "Завантаження...";
+        detailContent.replaceChildren();
+
+        dialog.showModal();
+
+        if (id === null || id === undefined || id === "") {
+            detailStatus.textContent =
+                "Не знайдено ідентифікатор препарату.";
+            return;
+        }
+
+        try {
+            const response = await fetch(
+                `/api/medicines/${encodeURIComponent(String(id))}`
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            const medicine = data.medicine ?? data.item ?? data;
+
+            detailTitle.textContent =
+                medicine.name || "Інформація про препарат";
+
+            detailStatus.textContent = "";
+
+            for (const [key, value] of Object.entries(medicine)) {
+                if (
+                    value === null ||
+                    value === undefined ||
+                    value === ""
+                ) {
+                    continue;
+                }
+
+                // Назва вже є у заголовку, тому не дублюємо її
+
+                if (key === "name") {
+                    continue;
+                }
+
+                const fieldLabel = fieldNames[key] || key;
+
+                // Застосування та побічні ефекти показуємо списком
+
+                if (key === "uses" || key === "side_effects") {
+                    const items = normalizeList(value);
+
+                    if (items.length === 0) {
+                        continue;
+                    }
+
+                    const row = createDetailRow(fieldLabel);
+                    const list = document.createElement("ul");
+                    list.className = "detail-list";
+
+                    items.forEach(item => {
+                        const listItem = document.createElement("li");
+                        listItem.textContent = item;
+                        list.appendChild(listItem);
+                    });
+
+                    row.appendChild(list);
+                    detailContent.appendChild(row);
+
+                    continue;
+                }
+
+                // Замінники відображаємо окремими плашками
+
+                if (key === "substitutes" || key === "substitute") {
+                    const items = normalizeList(value);
+
+                    if (items.length === 0) {
+                        continue;
+                    }
+
+                    const row = createDetailRow(fieldLabel);
+                    const tags = document.createElement("div");
+                    tags.className = "detail-tags";
+
+                    items.forEach(item => {
+                        const tag = document.createElement("span");
+                        tag.className = "detail-tag";
+                        tag.textContent = item;
+                        tags.appendChild(tag);
+                    });
+
+                    row.appendChild(tags);
+                    detailContent.appendChild(row);
+
+                    continue;
+                }
+
+                // Решту характеристик показуємо звичайним текстом
+
+                const row = createDetailRow(fieldLabel);
+
+                const text = document.createElement("div");
+                text.className = "detail-value";
+
+                if (typeof value === "boolean") {
+                    text.textContent = value ? "Так" : "Ні";
+                } else if (typeof value === "object") {
+                    text.textContent = JSON.stringify(value);
+                } else {
+                    text.textContent = String(value);
+                }
+
+                row.appendChild(text);
+                detailContent.appendChild(row);
+            }
+
+        } catch (error) {
+            console.error(
+                "Помилка завантаження препарату:",
+                error
+            );
+
+            detailStatus.textContent =
+                "Не вдалося завантажити інформацію про препарат.";
+        }
+    }
+
+    // Закриття вікна
+
+    document.getElementById("closeDialog")
+        .addEventListener("click", () => {
+            dialog.close();
+        });
+
+    // Застосування фільтрів
+
+    form.addEventListener("submit", event => {
+        event.preventDefault();
+        offset = 0;
+        loadMedicines();
+    });
+
+    // Скидання фільтрів
+
+    form.addEventListener("reset", () => {
+        offset = 0;
+        setTimeout(loadMedicines, 0);
+    });
+
+    // Попередня сторінка
+
+    prevButton.addEventListener("click", () => {
+        offset = Math.max(0, offset - limit);
+        loadMedicines();
+    });
+
+    // Наступна сторінка
+
+    nextButton.addEventListener("click", () => {
+        if (offset + limit < total) {
+            offset += limit;
+            loadMedicines();
+        }
+    });
+
+    // Початкове завантаження
+
+    loadMedicines();
+</script>
+
+</body>
+</html>
