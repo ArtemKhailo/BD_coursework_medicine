@@ -349,7 +349,9 @@ def writer_main(uri: str, database: str, paths: list[str], quota: int | None, ba
             batch = documents[start:start + batch_size]
             t = time.perf_counter()
             try:
-                inserted += len(collection.insert_many(batch, ordered=False).inserted_ids)
+                collection.insert_many(batch, ordered=False)
+                # inserted_ids тут не годиться: для RawBSONDocument PyMongo його не заповнює
+                inserted += len(batch)
             except BulkWriteError as exc:
                 errors = exc.details.get("writeErrors", [])
                 if any(e.get("code") != DUPLICATE_KEY for e in errors):

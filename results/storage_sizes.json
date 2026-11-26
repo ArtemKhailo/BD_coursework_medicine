@@ -1,0 +1,64 @@
+{
+ "created": "2026-11-26T23:37:35",
+ "mongodb": [
+  {
+   "collection": "ingest_log",
+   "shards": [
+    "shard3rs"
+   ],
+   "count": 0,
+   "size": 2222,
+   "storageSize": 36864,
+   "totalIndexSize": 36864
+  },
+  {
+   "collection": "medicines",
+   "shards": [
+    "shard1rs",
+    "shard2rs",
+    "shard3rs"
+   ],
+   "count": 222825,
+   "size": 161763046,
+   "storageSize": 63377408,
+   "totalIndexSize": 73834496
+  },
+  {
+   "collection": "medicines_bench",
+   "shards": [
+    "shard1rs",
+    "shard2rs",
+    "shard3rs"
+   ],
+   "count": 100000,
+   "size": 72858886,
+   "storageSize": 31399936,
+   "totalIndexSize": 25006080
+  },
+  {
+   "collection": "search_log",
+   "shards": [
+    "shard3rs"
+   ],
+   "count": 0,
+   "size": 0,
+   "storageSize": 4096,
+   "totalIndexSize": 8192
+  }
+ ],
+ "elasticsearch": null,
+ "sources": {
+  "MongoDB": {
+   "bytes": 148333947,
+   "records": 222825
+  },
+  "Elasticsearch": {
+   "bytes": 67113744,
+   "records": 222825
+  },
+  "Neo4j": {
+   "bytes": 202457679,
+   "records": 2699670
+  }
+ }
+}

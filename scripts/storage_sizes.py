@@ -76,9 +76,22 @@ def elastic_sizes(url: str) -> list[dict] | None:
             for i in data if not i["index"].startswith(".")]
 
 
-def source_sizes() -> dict[str, int]:
-    return {store: sum((PREPARED / f).stat().st_size for f in files if (PREPARED / f).exists())
-            for store, files in SOURCES.items()}
+def count_records(path: Path) -> int:
+    """Кількість записів: рядки JSONL або рядки CSV без заголовка."""
+    with path.open("rb") as f:
+        lines = sum(1 for line in f if line.strip())
+    return lines - 1 if path.suffix == ".csv" else lines
+
+
+def source_sizes() -> dict[str, dict[str, int]]:
+    result = {}
+    for store, files in SOURCES.items():
+        present = [PREPARED / f for f in files if (PREPARED / f).exists()]
+        result[store] = {
+            "bytes": sum(p.stat().st_size for p in present),
+            "records": sum(count_records(p) for p in present),
+        }
+    return result
 
 
 def main() -> None:
@@ -105,15 +118,26 @@ def main() -> None:
             print(f"  індекс {i['index']}: {i['count']:,} документів, {mib(i['storageSize'])} МіБ")
     result["elasticsearch"] = elastic
 
-    print("\nОбсяг вихідних файлів prepared/ за сховищами, МіБ")
+    print("\nВихідні файли prepared/ за сховищами")
+    print(f"  {'сховище':<14}{'МіБ':>8}{'записів':>12}{'байт/запис':>12}   файли")
     sources = source_sizes()
-    for store, size in sources.items():
+    for store, info in sources.items():
         files = ", ".join(SOURCES[store])
-        print(f"  {store:<14}{mib(size):>8}   ({files})" if size else f"  {store:<14}{'—':>8}   (файлів немає)")
+        if info["bytes"]:
+            per_record = info["bytes"] / info["records"] if info["records"] else 0
+            print(f"  {store:<14}{mib(info['bytes']):>8}{info['records']:>12,}{per_record:>12.0f}   {files}")
+        else:
+            print(f"  {store:<14}{'—':>8}{'—':>12}{'—':>12}   файлів немає")
     result["sources"] = sources
 
-    largest = max(sources, key=sources.get) if any(sources.values()) else "MongoDB"
-    print(f"\nНайбільше даних отримує: {largest}")
+    print("\nЯк читати порівняння файлів:")
+    print("  * файли Neo4j - це переважно списки ребер: кожен рядок містить два текстові UUID")
+    print("    (~75 байт), тоді як у самій Neo4j зв'язок - запис фіксованого розміру, а id вузла")
+    print("    зберігається один раз; тому розмір CSV не дорівнює обсягу даних у графі;")
+    print("  * усі ребра Neo4j і текст full_description для Elasticsearch виведені з полів")
+    print("    uses, side_effects, substitutes, action_class документів MongoDB;")
+    print("  * повний документ препарату (усі поля) зберігається лише в MongoDB: кожен документ")
+    print("    потоку запису потрапляє туди цілком, і лише в ній ростуть журнали search_log / ingest_log.")
     out = ROOT / "results" / "storage_sizes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
