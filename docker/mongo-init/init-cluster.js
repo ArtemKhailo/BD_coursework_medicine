@@ -1,19 +1,39 @@
 // Ініціалізація кластера MongoDB. Запускається контейнером mongo-init:
 //   mongosh --nodb --file /init/init-cluster.js
 // 1) створює replica set на сервері конфігурації та на кожному шарді;
-// 2) реєструє три шарди в mongos.
+// 2) реєструє шарди в mongos.
 // Скрипт ідемпотентний: повторний запуск нічого не ламає.
+//
+// Список шардів можна задати змінною середовища SHARDS у форматі
+//   "shard4rs@shard4:27018,shard5rs@shard5:27018"
+// (так додаються 4-та і 5-та шарди, див. docker-compose.mongo.scale.yml).
+// Без SHARDS реєструються три основні шарди.
 // Шардування колекції medicines виконує застосунок (MongoDocumentAdapter.ensure_sharding).
 //
 // Увага: mongosh виконує команди до БД асинхронно, тому тут свідомо немає
 // функцій-зворотних викликів (forEach, retry(fn)): лише прості цикли з try/catch.
 
 const CONFIG = { id: "cfgrs", host: "configsvr:27019", configsvr: true };
-const SHARDS = [
+const DEFAULT_SHARDS = [
   { id: "shard1rs", host: "shard1:27018" },
   { id: "shard2rs", host: "shard2:27018" },
   { id: "shard3rs", host: "shard3:27018" },
 ];
+
+// "shard4rs@shard4:27018,shard5rs@shard5:27018" -> [{id, host}, ...]
+function parseShards(text) {
+  const result = [];
+  for (const item of text.split(",")) {
+    const trimmed = item.trim();
+    if (trimmed === "") continue;
+    const parts = trimmed.split("@");
+    if (parts.length !== 2) throw new Error(`SHARDS: неправильний запис "${trimmed}"`);
+    result.push({ id: parts[0], host: parts[1] });
+  }
+  return result;
+}
+
+const SHARDS = process.env.SHARDS ? parseShards(process.env.SHARDS) : DEFAULT_SHARDS;
 const MONGOS = "mongos:27017";
 const ATTEMPTS = 60;
 

@@ -199,3 +199,20 @@ async def test_search_log_roundtrip(client):
     await metrics.record_query(raw, raw.lower(), results_count=0, cache_hit=False, latency_ms=3)
     latest = await metrics.recent_queries(1)
     assert latest[0].raw_query == raw and latest[0].status == "Пусто"
+
+
+async def test_logs_are_partitioned_by_time(client):
+    """Етап 13: ingest_log - колекція часових рядів, search_log має TTL-індекс."""
+    from app.infrastructure.observability import mongo_metrics_adapter as module
+
+    await client[TEST_DB]["ingest_log"].drop()
+    metrics = MongoMetricsAdapter(client, TEST_DB)
+    await metrics.ensure_indexes()
+    await metrics.ensure_indexes()                         # повторний виклик нічого не ламає
+    assert await metrics.is_time_series("ingest_log")
+
+    await metrics.record_ingest(7, 3)
+    assert await metrics.total_ingested() >= 7
+
+    indexes = await client[TEST_DB]["search_log"].index_information()
+    assert indexes["created_at"]["expireAfterSeconds"] == module.SEARCH_LOG_TTL_DAYS * module.DAY_SECONDS

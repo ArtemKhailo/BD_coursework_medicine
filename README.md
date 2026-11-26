@@ -196,6 +196,29 @@ python scripts/process_dataset.py
 сховища: `medicines.jsonl`, `search_docs.jsonl`, `diseases.csv`, `symptoms.csv`, `treats.csv`,
 `causes.csv`, `analogs.csv`, `search_queries.csv`. Генерація відсутніх полів відтворювана (`seed = 42`).
 
+### 5. Етап 13: партиціонування, шардінг і бенчмарк запису
+
+```
+# спершу основний кластер (3 шарди) і дані, потім ще 2 шарди для порівняння
+docker compose -f docker/docker-compose.mongo.yml up -d
+python scripts/load_mongo.py --drop          # основні дані; ingest_log стає колекцією часових рядів
+docker compose -f docker/docker-compose.mongo.yml -f docker/docker-compose.mongo.scale.yml up -d
+python scripts/storage_sizes.py              # обсяги сховищ (чому шардується MongoDB)
+
+python scripts/bench_sharding.py prepare     # 1,1 млн перемішаних документів у prepared/bench/
+python scripts/bench_sharding.py run --shards 1
+python scripts/bench_sharding.py run --shards 3
+python scripts/bench_sharding.py run --shards 4 5
+python scripts/bench_sharding.py report      # results/bench/summary.csv і throughput.png
+```
+
+Бенчмарк пише в колекцію `medicines_bench`, основну `medicines` не змінює. Для N шард
+колекцію заздалегідь ділять на 4 x N чанків і розносять по колу; «1 шард» означає, що всі
+чанки лежать на shard1rs, а інші шарди не використовуються. Записувачі - окремі процеси
+(1, 4, 8), пакети по 1000 і 5000 документів, по 3 прогони, у підсумку - медіана.
+Для графіка потрібен `pip install matplotlib`. Порядок важливий: якщо створити базу вже
+на 5 шардах, основна колекція може лягти на shard4rs/shard5rs, а не на shard1-3, як у звіті.
+
 ## Контейнеризація
 
 Docker + Docker Compose дають однакове середовище для всієї команди і дозволяють підняти

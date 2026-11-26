@@ -1,6 +1,13 @@
 """Адаптер MongoDB для MetricsSink (колекції search_log та ingest_log, без шардінгу).
 
 Обидві колекції службові й невеликі, тому живуть на primary-шарді бази без шардінгу.
+
+Партиціонування за часом (етап 13):
+  * ingest_log - колекція часових рядів (time series): MongoDB сама групує записи
+    в бакети за полем created_at, тобто дані фізично поділені на часові проміжки,
+    а бакети старші за INGEST_LOG_TTL_DAYS видаляються цілими;
+  * search_log - звичайна колекція з TTL-індексом за created_at: записи старші
+    за SEARCH_LOG_TTL_DAYS видаляються фоновим потоком mongod.
 """
 from __future__ import annotations
 
@@ -10,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 from pymongo import DESCENDING
+from pymongo.errors import OperationFailure
 
 from app.domain.entities.search_log_entry import SearchLogEntry
 from app.domain.ports.outbound.metrics_sink import MetricsSink
@@ -19,16 +27,58 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+SEARCH_LOG_TTL_DAYS = 30
+INGEST_LOG_TTL_DAYS = 90
+DAY_SECONDS = 24 * 60 * 60
+INDEX_OPTIONS_CONFLICT = (85, 86)   # IndexOptionsConflict, IndexKeySpecsConflict
+
 
 class MongoMetricsAdapter(MetricsSink):
     def __init__(self, client: AsyncMongoClient, database: str = "medicine") -> None:
-        self._search_log = client[database]["search_log"]
-        self._ingest_log = client[database]["ingest_log"]
+        self._db = client[database]
+        self._search_log = self._db["search_log"]
+        self._ingest_log = self._db["ingest_log"]
 
     async def ensure_indexes(self) -> None:
-        """Індекси за часом: останні запити та графік швидкості запису."""
-        await self._search_log.create_index([("created_at", DESCENDING)], name="created_at")
+        """Партиціонування журналів за часом та індекси для запитів «останні N записів».
+
+        ingest_log створюється як колекція часових рядів, лише якщо її ще немає:
+        звичайну колекцію MongoDB не перетворює на часові ряди (load_mongo.py --drop
+        видаляє ingest_log, і вона створюється наново вже правильного типу).
+        """
+        existing = set(await self._db.list_collection_names())
+        if "ingest_log" not in existing:
+            await self._db.create_collection(
+                "ingest_log",
+                timeseries={"timeField": "created_at", "granularity": "seconds"},
+                expireAfterSeconds=INGEST_LOG_TTL_DAYS * DAY_SECONDS,
+            )
+            logger.info("MongoDB: ingest_log створено як колекцію часових рядів")
+        elif not await self.is_time_series("ingest_log"):
+            logger.warning("MongoDB: ingest_log - звичайна колекція; щоб зробити її часовими "
+                           "рядами, перезавантажте дані: python scripts/load_mongo.py --drop")
         await self._ingest_log.create_index([("created_at", DESCENDING)], name="created_at")
+        await self._ensure_ttl_index(self._search_log, SEARCH_LOG_TTL_DAYS * DAY_SECONDS)
+
+    async def _ensure_ttl_index(self, collection, ttl_seconds: int) -> None:
+        """TTL-індекс created_at. Якщо звичайний індекс з такою назвою вже є (створений
+        до етапу 13), він перетворюється на TTL командою collMod без перебудови."""
+        try:
+            await collection.create_index([("created_at", DESCENDING)], name="created_at",
+                                          expireAfterSeconds=ttl_seconds)
+        except OperationFailure as exc:
+            if exc.code not in INDEX_OPTIONS_CONFLICT:
+                raise
+            await self._db.command("collMod", collection.name, index={
+                "keyPattern": {"created_at": DESCENDING},
+                "expireAfterSeconds": ttl_seconds,
+            })
+            logger.info("MongoDB: індекс %s.created_at перетворено на TTL", collection.name)
+
+    async def is_time_series(self, name: str) -> bool:
+        cursor = await self._db.list_collections(filter={"name": name})
+        info = await cursor.to_list(length=None)
+        return bool(info) and info[0].get("type") == "timeseries"
 
     @staticmethod
     def _now() -> datetime:

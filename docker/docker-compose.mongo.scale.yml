@@ -1,0 +1,69 @@
+# Масштабування кластера MongoDB (етап 13): додає 4-ту і 5-ту шарди до основного кластера.
+#
+# Використовується РАЗОМ з основним файлом (кластер має бути вже створений):
+#   docker compose -f docker/docker-compose.mongo.yml -f docker/docker-compose.mongo.scale.yml up -d
+# Перевірка, що шард стало 5:
+#   docker exec -it mongos mongosh --quiet --eval "db.adminCommand({listShards: 1}).shards.map(s => s._id)"
+#
+# Після додавання шарди записані в метаданих кластера, тому надалі запускайте
+# кластер завжди з обома файлами (інакше mongos не зможе достукатися до shard4/shard5).
+#
+# Основна колекція medicines на нові шарди не переїде: балансувальник MongoDB 7.0
+# переносить дані лише за різниці понад 3 x 128 МБ між шардами, а в нас ~50 МБ на шард.
+# Нові шарди використовує бенчмарк scripts/bench_sharding.py (колекція medicines_bench).
+
+services:
+  shard4:
+    image: mongo:7.0
+    container_name: mongo-shard4
+    command: ["mongod", "--shardsvr", "--replSet", "shard4rs", "--port", "27018",
+              "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - shard4_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  shard5:
+    image: mongo:7.0
+    container_name: mongo-shard5
+    command: ["mongod", "--shardsvr", "--replSet", "shard5rs", "--port", "27018",
+              "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    volumes:
+      - shard5_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27018", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Одноразовий контейнер: ініціалізує replica set-и нових шардів і реєструє їх у mongos.
+  # Той самий скрипт, що й для основних шардів, але зі списком із змінної SHARDS.
+  mongo-init-scale:
+    image: mongo:7.0
+    container_name: mongo-init-scale
+    command: ["mongosh", "--nodb", "--quiet", "--file", "/init/init-cluster.js"]
+    environment:
+      SHARDS: "shard4rs@shard4:27018,shard5rs@shard5:27018"
+    volumes:
+      - ./mongo-init:/init:ro
+    depends_on:
+      configsvr:
+        condition: service_healthy
+      shard4:
+        condition: service_healthy
+      shard5:
+        condition: service_healthy
+      mongos:
+        condition: service_started
+      mongo-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+volumes:
+  shard4_data:
+  shard5_data:
