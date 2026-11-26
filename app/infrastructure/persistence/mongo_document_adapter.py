@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from bson.min_key import MinKey
 from pymongo import ASCENDING
 from pymongo.errors import BulkWriteError, DuplicateKeyError, OperationFailure
 
+from app.domain.entities.catalog_facets import CatalogFacets, FacetCount
 from app.domain.entities.medicine import Medicine
 from app.domain.errors import MedicineAlreadyExistsError
 from app.domain.ports.outbound.document_repository import DocumentRepository
@@ -197,6 +199,12 @@ class MongoDocumentAdapter(DocumentRepository):
                 query[key] = value
             elif key == "name":
                 query["name"] = str(value).strip().lower()
+            elif key == "name_prefix":
+                # Регулярний вираз із ^ і без прапорця i MongoDB виконує як діапазон
+                # за індексом name (IXSCAN), а не повним переглядом колекції.
+                prefix = str(value).strip().lower()
+                if prefix:
+                    query["name"] = {"$regex": "^" + re.escape(prefix)}
             elif key == "price_max":
                 query.setdefault("price", {})["$lte"] = float(value)
             elif key == "price_min":
@@ -276,6 +284,43 @@ class MongoDocumentAdapter(DocumentRepository):
         ]
         cursor = await self._collection.aggregate(pipeline)
         return [(row["_id"], int(row["count"])) for row in await cursor.to_list(length=None)]
+
+    async def facets(self, therapeutic_class: str | None = None) -> CatalogFacets:
+        """Довідник для фільтрів UI: дві агрегації.
+
+        1) $group за therapeutic_class по всій колекції (на всі шарди): список усіх класів.
+        2) $match за обраним класом -> $facet { хімічні класи ($group), ціни ($min/$max) }.
+           Якщо клас задано, $match містить префікс ключа шардінгу -> запит іде на ОДИН шард.
+        """
+        therapeutic_pipeline = [
+            {"$group": {"_id": "$therapeutic_class", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1, "_id": 1}},
+        ]
+        scope = {"therapeutic_class": therapeutic_class} if therapeutic_class else {}
+        scoped_pipeline = [
+            {"$match": scope},
+            {"$facet": {
+                "chemical": [
+                    {"$match": {"chemical_class": {"$nin": [None, ""]}}},
+                    {"$group": {"_id": "$chemical_class", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1, "_id": 1}},
+                ],
+                "price": [
+                    {"$group": {"_id": None, "min": {"$min": "$price"}, "max": {"$max": "$price"}}},
+                ],
+            }},
+        ]
+        therapeutic_rows = await (await self._collection.aggregate(therapeutic_pipeline)).to_list(length=None)
+        scoped_rows = await (await self._collection.aggregate(scoped_pipeline)).to_list(length=None)
+        scoped = scoped_rows[0] if scoped_rows else {"chemical": [], "price": []}
+        price = scoped["price"][0] if scoped["price"] else {}
+        return CatalogFacets(
+            therapeutic_classes=[FacetCount(str(r["_id"]), int(r["count"]))
+                                 for r in therapeutic_rows if r["_id"]],
+            chemical_classes=[FacetCount(str(r["_id"]), int(r["count"])) for r in scoped["chemical"]],
+            price_min=price.get("min"),
+            price_max=price.get("max"),
+        )
 
     # --- DocumentRepository: Update / Delete ---
     async def update(self, medicine_id: UUID, changes: dict[str, Any]) -> Medicine | None:

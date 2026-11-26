@@ -48,7 +48,7 @@
 
         .filters {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
             gap: 15px;
             margin-top: 20px;
         }
@@ -233,6 +233,62 @@
             line-height: 1.5;
         }
 
+        /* Підказки під полями фільтрів */
+
+        .hint {
+            display: block;
+            margin-top: 6px;
+            font-size: 12px;
+            font-weight: normal;
+            color: #64748b;
+        }
+
+        .hint.warning {
+            color: #b45309;
+        }
+
+        .price-range {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Клікабельні класи на картці: клік ставить клас у фільтр */
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 4px 0 8px;
+        }
+
+        .chip {
+            background: #edf5f7;
+            border: 1px solid #d3e5eb;
+            color: #176c82;
+            padding: 5px 9px;
+            border-radius: 999px;
+            font-size: 12px;
+            text-align: left;
+        }
+
+        .chip:hover:not(:disabled) {
+            background: #d3e5eb;
+        }
+
+        .chip.chemical {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+            color: #475569;
+        }
+
+        .in-stock {
+            color: #15803d;
+        }
+
+        .out-of-stock {
+            color: #b91c1c;
+        }
+
         @media (max-width: 600px) {
             header {
                 padding: 22px 20px;
@@ -260,34 +316,64 @@
 <main>
     <section class="panel">
         <h2>Фільтрація препаратів</h2>
+        <p class="hint">
+            Усі поля необов'язкові: заповніть лише ті, що потрібні.
+            Порожнє поле означає «будь-яке значення».
+        </p>
 
         <form id="filterForm">
             <div class="filters">
 
                 <label>
-                    Терапевтичний клас
+                    Назва препарату
                     <input
-                        id="therapeuticClass"
-                        placeholder="Наприклад: anti infectives"
+                        id="nameSearch"
+                        type="search"
+                        placeholder="Наприклад: augmentin"
+                        autocomplete="off"
                     >
+                    <span class="hint">Необов'язково · пошук за початком назви</span>
+                </label>
+
+                <label>
+                    Терапевтичний клас
+                    <select id="therapeuticClass">
+                        <option value="">Усі класи</option>
+                    </select>
+                    <span class="hint" id="therapeuticHint"></span>
                 </label>
 
                 <label>
                     Хімічний клас
                     <input
                         id="chemicalClass"
-                        placeholder="Введіть клас"
+                        list="chemicalOptions"
+                        placeholder="Почніть вводити або оберіть"
+                        autocomplete="off"
                     >
+                    <datalist id="chemicalOptions"></datalist>
+                    <span class="hint" id="chemicalHint"></span>
                 </label>
 
                 <label>
-                    Максимальна ціна
-                    <input
-                        id="priceMax"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                    >
+                    Ціна, грн
+                    <span class="price-range">
+                        <input
+                            id="priceMin"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="від"
+                        >
+                        <input
+                            id="priceMax"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="до"
+                        >
+                    </span>
+                    <span class="hint" id="priceHint"></span>
                 </label>
 
                 <label>
@@ -371,6 +457,10 @@
     let offset = 0;
     let total = 0;
 
+    // Номер останнього запиту: відповідь на застарілий запит (користувач уже
+    // змінив фільтр) не повинна перезаписати новіший результат
+    let lastRequest = 0;
+
     const form = document.getElementById("filterForm");
     const container = document.getElementById("medicines");
     const status = document.getElementById("status");
@@ -383,6 +473,192 @@
     const prevButton = document.getElementById("prevButton");
     const nextButton = document.getElementById("nextButton");
 
+    const nameInput = document.getElementById("nameSearch");
+    const therapeuticSelect = document.getElementById("therapeuticClass");
+    const therapeuticHint = document.getElementById("therapeuticHint");
+    const chemicalInput = document.getElementById("chemicalClass");
+    const chemicalOptions = document.getElementById("chemicalOptions");
+    const chemicalHint = document.getElementById("chemicalHint");
+    const priceMinInput = document.getElementById("priceMin");
+    const priceMaxInput = document.getElementById("priceMax");
+    const priceHint = document.getElementById("priceHint");
+
+    // Українські назви терапевтичних класів (у базі вони англійською)
+
+    const therapeuticLabels = {
+        "anti infectives": "Протиінфекційні",
+        "gastro intestinal": "Шлунково-кишкові",
+        "pain analgesics": "Знеболювальні",
+        "neuro cns": "Неврологічні (ЦНС)",
+        "respiratory": "Респіраторні",
+        "cardiac": "Серцево-судинні",
+        "anti diabetic": "Протидіабетичні",
+        "ophthal": "Офтальмологічні",
+        "derma": "Дерматологічні",
+        "hormones": "Гормональні",
+        "gynaecological": "Гінекологічні",
+        "vitamins minerals nutrients": "Вітаміни та мінерали",
+        "anti neoplastics": "Протипухлинні",
+        "blood related": "Засоби для крові",
+        "urology": "Урологічні",
+        "ophthal otologicals": "Очні та вушні",
+        "anti malarials": "Протималярійні",
+        "sex stimulants rejuvenators": "Стимулятори статевої функції",
+        "others": "Інші",
+        "otologicals": "Вушні (отологічні)",
+        "vaccines": "Вакцини",
+        "stomatologicals": "Стоматологічні",
+        "unknown": "Не визначено"
+    };
+
+    function therapeuticLabel(value) {
+        return therapeuticLabels[value] || value;
+    }
+
+    const numberFormat = new Intl.NumberFormat("uk-UA");
+
+    function formatPrice(value) {
+        return `${Number(value).toFixed(2)} грн`;
+    }
+
+    // Хімічні класи, які реально існують для поточного вибору
+
+    let knownChemicalClasses = new Set();
+
+    // Довідник фільтрів: GET /api/medicines/facets
+    // Без класу - усі терапевтичні класи; з класом - ще й його хімічні класи та ціни.
+
+    async function loadFacets(therapeuticClass = "") {
+        const params = new URLSearchParams();
+
+        if (therapeuticClass) {
+            params.set("therapeutic_class", therapeuticClass);
+        }
+
+        const response = await fetch(
+            `/api/medicines/facets?${params.toString()}`
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        return response.json();
+    }
+
+    function fillTherapeuticSelect(classes) {
+        const selected = therapeuticSelect.value;
+
+        // Сортуємо за українською назвою, щоб клас було легко знайти очима
+        const sorted = [...classes].sort((a, b) =>
+            therapeuticLabel(a.value).localeCompare(therapeuticLabel(b.value), "uk")
+        );
+
+        therapeuticSelect.replaceChildren(new Option("Усі класи", ""));
+
+        sorted.forEach(item => {
+            const label =
+                `${therapeuticLabel(item.value)} (${numberFormat.format(item.count)})`;
+            therapeuticSelect.appendChild(new Option(label, item.value));
+        });
+
+        therapeuticSelect.value = selected;
+        updateTherapeuticHint();
+    }
+
+    function updateTherapeuticHint() {
+        const value = therapeuticSelect.value;
+        therapeuticHint.textContent = value ? `У базі: ${value}` : "";
+    }
+
+    function fillChemicalOptions(classes) {
+        chemicalOptions.replaceChildren();
+        knownChemicalClasses = new Set(classes.map(item => item.value));
+
+        classes.forEach(item => {
+            const option = document.createElement("option");
+            option.value = item.value;
+            option.label = `${numberFormat.format(item.count)} препаратів`;
+            chemicalOptions.appendChild(option);
+        });
+
+        updateChemicalHint();
+    }
+
+    function updateChemicalHint() {
+        const value = chemicalInput.value.trim().toLowerCase();
+
+        chemicalHint.classList.remove("warning");
+
+        if (value && knownChemicalClasses.size && !knownChemicalClasses.has(value)) {
+            chemicalHint.textContent =
+                "Такого класу немає в обраній категорії - оберіть зі списку";
+            chemicalHint.classList.add("warning");
+            return;
+        }
+
+        const scope = therapeuticSelect.value
+            ? "у цьому терапевтичному класі"
+            : "у каталозі";
+
+        chemicalHint.textContent = knownChemicalClasses.size
+            ? `Необов'язково · ${numberFormat.format(knownChemicalClasses.size)} класів ${scope}`
+            : "Необов'язково";
+    }
+
+    function applyPriceRange(price) {
+        if (!price || price.min == null || price.max == null) {
+            priceHint.textContent = "";
+            return;
+        }
+
+        [priceMinInput, priceMaxInput].forEach(input => {
+            input.min = Math.floor(price.min);
+            input.max = Math.ceil(price.max);
+        });
+
+        priceHint.textContent =
+            `Діапазон: ${Math.floor(price.min)}-${Math.ceil(price.max)} грн`;
+    }
+
+    // Оновлюємо хімічні класи та ціни під обраний терапевтичний клас
+
+    async function refreshScopedFacets() {
+        try {
+            const facets = await loadFacets(therapeuticSelect.value);
+
+            fillChemicalOptions(facets.chemical_classes);
+            applyPriceRange(facets.price);
+
+            // Хімічний клас з іншої категорії тут уже нічого не знайде
+            const chemical = chemicalInput.value.trim().toLowerCase();
+
+            if (chemical && !knownChemicalClasses.has(chemical)) {
+                chemicalInput.value = "";
+                updateChemicalHint();
+            }
+
+        } catch (error) {
+            console.error("Помилка завантаження довідника:", error);
+            chemicalHint.textContent = "";
+        }
+    }
+
+    async function initFacets() {
+        try {
+            const facets = await loadFacets();
+
+            fillTherapeuticSelect(facets.therapeutic_classes);
+            fillChemicalOptions(facets.chemical_classes);
+            applyPriceRange(facets.price);
+
+        } catch (error) {
+            console.error("Помилка завантаження довідника:", error);
+            therapeuticHint.textContent =
+                "Не вдалося завантажити список класів";
+        }
+    }
+
     // Додаємо заповнені поля до запиту
 
     function addFilter(params, key, id) {
@@ -393,6 +669,43 @@
         }
     }
 
+    // Кнопка-клас на картці: клік ставить цей клас у фільтр
+
+    function createChip(text, title, className, onClick) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = `chip ${className}`;
+        chip.textContent = text;
+        chip.title = title;
+        chip.addEventListener("click", onClick);
+        return chip;
+    }
+
+    async function filterByTherapeutic(value) {
+        therapeuticSelect.value = value;
+        updateTherapeuticHint();
+        await refreshScopedFacets();
+        applyFilters();
+    }
+
+    async function filterByChemical(therapeutic, chemical) {
+        if (therapeuticSelect.value !== therapeutic) {
+            therapeuticSelect.value = therapeutic;
+            updateTherapeuticHint();
+        }
+
+        chemicalInput.value = chemical;
+        await refreshScopedFacets();
+        chemicalInput.value = chemical;
+        updateChemicalHint();
+        applyFilters();
+    }
+
+    function applyFilters() {
+        offset = 0;
+        loadMedicines();
+    }
+
     // Отримуємо список препаратів через REST API
 
     async function loadMedicines() {
@@ -401,14 +714,17 @@
             offset: String(offset)
         });
 
+        addFilter(params, "name", "nameSearch");
         addFilter(params, "therapeutic_class", "therapeuticClass");
         addFilter(params, "chemical_class", "chemicalClass");
+        addFilter(params, "price_min", "priceMin");
         addFilter(params, "price_max", "priceMax");
         addFilter(params, "is_prescription", "prescription");
         addFilter(params, "in_stock", "inStock");
 
+        const requestId = ++lastRequest;
+
         status.textContent = "Завантаження...";
-        container.replaceChildren();
 
         try {
             const response = await fetch(
@@ -421,14 +737,20 @@
 
             const data = await response.json();
 
+            if (requestId !== lastRequest) {
+                return;
+            }
+
+            container.replaceChildren();
+
             total = data.total;
 
             document.getElementById("totalCount").textContent =
-                `Знайдено: ${total}`;
+                `Знайдено: ${numberFormat.format(total)}`;
 
             status.textContent = data.items.length
                 ? ""
-                : "За заданими параметрами препаратів не знайдено.";
+                : "За заданими параметрами препаратів не знайдено. Спробуйте прибрати частину фільтрів.";
 
             // Створюємо картки препаратів
 
@@ -439,15 +761,43 @@
                 const title = document.createElement("h3");
                 title.textContent = medicine.name;
 
-                const category = document.createElement("p");
-                category.textContent =
-                    `Клас: ${medicine.therapeutic_class || "Не вказано"}`;
+                // Класи препарату: клік ставить клас у фільтр
+
+                const chips = document.createElement("div");
+                chips.className = "chips";
+
+                chips.appendChild(createChip(
+                    therapeuticLabel(medicine.therapeutic_class),
+                    `Показати всі: ${medicine.therapeutic_class}`,
+                    "therapeutic",
+                    () => filterByTherapeutic(medicine.therapeutic_class)
+                ));
+
+                if (medicine.chemical_class) {
+                    chips.appendChild(createChip(
+                        medicine.chemical_class,
+                        `Показати всі: ${medicine.chemical_class}`,
+                        "chemical",
+                        () => filterByChemical(
+                            medicine.therapeutic_class,
+                            medicine.chemical_class
+                        )
+                    ));
+                }
 
                 const manufacturer = document.createElement("p");
                 manufacturer.textContent =
                     `Виробник: ${medicine.manufacturer || "Не вказано"}`;
 
+                const prescription = document.createElement("p");
+                prescription.textContent = medicine.is_prescription
+                    ? "За рецептом"
+                    : "Без рецепта";
+
                 const availability = document.createElement("p");
+                availability.className = medicine.in_stock
+                    ? "in-stock"
+                    : "out-of-stock";
                 availability.textContent = medicine.in_stock
                     ? "У наявності"
                     : "Немає в наявності";
@@ -456,7 +806,7 @@
                 price.className = "price";
 
                 price.textContent = medicine.price != null
-                    ? `Ціна: ${medicine.price}`
+                    ? formatPrice(medicine.price)
                     : "Ціна не вказана";
 
                 const detailsButton = document.createElement("button");
@@ -475,8 +825,9 @@
 
                 card.append(
                     title,
-                    category,
+                    chips,
                     manufacturer,
+                    prescription,
                     availability,
                     price,
                     detailsButton
@@ -486,8 +837,13 @@
             });
 
         } catch (error) {
+            if (requestId !== lastRequest) {
+                return;
+            }
+
             console.error("Помилка завантаження:", error);
 
+            container.replaceChildren();
             status.textContent =
                 "Не вдалося отримати дані з API. Перевірте підключення до сервера.";
 
@@ -496,7 +852,7 @@
         }
 
         document.getElementById("pageNumber").textContent =
-            `Сторінка ${Math.floor(offset / limit) + 1}`;
+            `Сторінка ${Math.floor(offset / limit) + 1} з ${Math.max(1, Math.ceil(total / limit))}`;
 
         prevButton.disabled = offset === 0;
         nextButton.disabled = offset + limit >= total;
@@ -512,6 +868,7 @@
         manufacturer: "Виробник",
         therapeutic_class: "Терапевтичний клас",
         chemical_class: "Хімічний клас",
+        action_class: "Клас дії",
         price: "Ціна",
         is_prescription: "Рецептурний препарат",
         is_habit_forming: "Викликає звикання",
@@ -681,6 +1038,10 @@
 
                 if (typeof value === "boolean") {
                     text.textContent = value ? "Так" : "Ні";
+                } else if (key === "therapeutic_class") {
+                    text.textContent = `${therapeuticLabel(value)} (${value})`;
+                } else if (key === "price") {
+                    text.textContent = formatPrice(value);
                 } else if (typeof value === "object") {
                     text.textContent = JSON.stringify(value);
                 } else {
@@ -713,15 +1074,52 @@
 
     form.addEventListener("submit", event => {
         event.preventDefault();
-        offset = 0;
-        loadMedicines();
+        applyFilters();
+    });
+
+    // Терапевтичний клас: оновлюємо хімічні класи під нього і одразу фільтруємо
+
+    therapeuticSelect.addEventListener("change", async () => {
+        updateTherapeuticHint();
+        await refreshScopedFacets();
+        applyFilters();
+    });
+
+    // Хімічний клас: фільтруємо, коли обрано значення зі списку
+
+    chemicalInput.addEventListener("input", updateChemicalHint);
+
+    chemicalInput.addEventListener("change", () => {
+        const value = chemicalInput.value.trim().toLowerCase();
+
+        if (value === "" || knownChemicalClasses.has(value)) {
+            applyFilters();
+        }
+    });
+
+    // Назва: шукаємо під час набору (із затримкою, щоб не слати запит на кожну літеру)
+
+    let nameTimer = null;
+
+    nameInput.addEventListener("input", () => {
+        clearTimeout(nameTimer);
+        nameTimer = setTimeout(applyFilters, 350);
+    });
+
+    ["prescription", "inStock"].forEach(id => {
+        document.getElementById(id).addEventListener("change", applyFilters);
     });
 
     // Скидання фільтрів
 
     form.addEventListener("reset", () => {
         offset = 0;
-        setTimeout(loadMedicines, 0);
+
+        setTimeout(async () => {
+            updateTherapeuticHint();
+            await refreshScopedFacets();
+            loadMedicines();
+        }, 0);
     });
 
     // Попередня сторінка
@@ -742,6 +1140,7 @@
 
     // Початкове завантаження
 
+    initFacets();
     loadMedicines();
 </script>
 

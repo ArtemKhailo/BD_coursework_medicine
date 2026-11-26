@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MedicineCard(BaseModel):
@@ -52,15 +52,35 @@ class MedicineUpdateDto(BaseModel):
     substitutes: list[str] | None = None
 
 
+def normalize_filter_value(value: str | None) -> str | None:
+    """Значення текстового фільтра -> вигляд, у якому воно лежить у базі.
+
+    Класи й назви в базі записані малими літерами (так їх готує конвеєр даних),
+    тому "Anti Infectives " знайде "anti infectives". Порожній рядок = фільтр не задано.
+    Пробіли всередині не чіпаємо: кілька хімічних класів у даних містять подвійні пробіли.
+    """
+    if value is None:
+        return None
+    value = value.strip().lower()
+    return value or None
+
+
 class MedicineListQuery(BaseModel):
     """Фільтрація за параметрами (запит №2)."""
     is_prescription: bool | None = None
-    price_max: float | None = None
+    price_min: float | None = Field(default=None, ge=0)
+    price_max: float | None = Field(default=None, ge=0)
     in_stock: bool | None = None
     therapeutic_class: str | None = None
     chemical_class: str | None = None
+    name_prefix: str | None = None   # пошук за початком назви: "augm" -> "augmentin 625 duo tablet"
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
+
+    @field_validator("therapeutic_class", "chemical_class", "name_prefix")
+    @classmethod
+    def _normalize(cls, value: str | None) -> str | None:
+        return normalize_filter_value(value)
 
 
 class MedicineListResult(BaseModel):

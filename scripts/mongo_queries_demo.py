@@ -1,4 +1,4 @@
-"""Демонстрація всіх запитів до MongoDB (етап 10-11): запис (W1-W6) і пошук (R1-R7).
+"""Демонстрація всіх запитів до MongoDB (етапи 10-12): запис (W1-W6) і пошук (R1-R9).
 
 Для кожного запиту друкує: еквівалент у mongosh, результат, час виконання і, для читання,
 план mongos (explain): на скільки шардів пішов запит і який індекс використано.
@@ -240,6 +240,37 @@ async def main() -> None:
         with Timer() as t:
             ingested = await metrics.total_ingested()
         print(f"Записано за весь час: {ingested} за {t.ms:.1f} мс")
+
+        # ------------------------------------------------------------- етап 12: фільтри UI
+        title("R8", "Довідник фільтрів для UI (facets: $group за класами, $min/$max ціни)")
+        shell('db.medicines.aggregate([{$group: {_id: "$therapeutic_class", count: {$sum: 1}}}, '
+              '{$sort: {count: -1}}])')
+        shell('db.medicines.aggregate([{$match: {therapeutic_class: "anti infectives"}}, {$facet: {'
+              'chemical: [{$group: {_id: "$chemical_class", count: {$sum: 1}}}, {$sort: {count: -1}}], '
+              'price: [{$group: {_id: null, min: {$min: "$price"}, max: {$max: "$price"}}}]}}])')
+        with Timer() as t:
+            facets = await documents.facets("anti infectives")
+        print(f"Терапевтичних класів: {len(facets.therapeutic_classes)}; найбільші: "
+              + ", ".join(f"{f.value} ({f.count})" for f in facets.therapeutic_classes[:3]))
+        print(f"Хімічних класів у 'anti infectives': {len(facets.chemical_classes)}; найбільші: "
+              + ", ".join(f"{f.value} ({f.count})" for f in facets.chemical_classes[:3]))
+        print(f"Ціни в класі: {facets.price_min:.2f} - {facets.price_max:.2f} грн")
+        print(f"за {t.ms:.1f} мс")
+        group_all = [{"$group": {"_id": "$therapeutic_class", "count": {"$sum": 1}}}]
+        group_one = [{"$match": {"therapeutic_class": "anti infectives"}},
+                     {"$group": {"_id": "$chemical_class", "count": {"$sum": 1}}}]
+        print("  усі класи:    " + await explain_aggregate(db, "medicines", group_all))
+        print("  обраний клас: " + await explain_aggregate(db, "medicines", group_one))
+
+        title("R9", "Пошук за початком назви (regex з ^ за індексом name)")
+        shell('db.medicines.find({name: /^augmentin/}).sort({price: 1, _id: 1}).limit(5)')
+        with Timer() as t:
+            found = await documents.find({"name_prefix": "augmentin"}, limit=5)
+            n_prefix = await documents.count({"name_prefix": "augmentin"})
+        for m in found:
+            print(f"  {m.name:40s} {m.price:8.2f} грн")
+        print(f"Усього з таким початком: {n_prefix} за {t.ms:.1f} мс")
+        print("  " + await explain_find(collection, MongoDocumentAdapter._build_filter({"name_prefix": "augmentin"})))
 
         title("W4", "Видалення тестового препарату (delete_one за _id)")
         shell(f'db.medicines.deleteOne({{_id: "{demo.medicine_id}"}})')

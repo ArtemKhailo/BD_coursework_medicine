@@ -152,6 +152,46 @@ async def test_top_side_effects_skips_placeholders(repo, marker, cleanup):
     assert await repo.top_side_effects(marker, limit=5) == [("nausea", 2), ("rash", 1)]
 
 
+async def test_name_prefix_search_uses_name_index(client, repo, marker, cleanup):
+    await repo.create_many([make(marker, f"-{i} tablet") for i in range(3)])
+    found = await repo.find({"name_prefix": marker.upper()})      # регістр не важливий
+    assert len(found) == 3 and all(m.name.startswith(marker) for m in found)
+    assert await repo.count({"name_prefix": f"{marker}-1"}) == 1
+
+    flt = MongoDocumentAdapter._build_filter({"name_prefix": marker})
+    plan = await client[TEST_DB]["medicines"].find(flt).explain()
+    assert "COLLSCAN" not in str(plan["queryPlanner"]["winningPlan"])
+    assert "'indexName': 'name'" in str(plan["queryPlanner"]["winningPlan"])
+
+
+async def test_facets_counts_classes_and_prices(client, repo, marker, cleanup):
+    await repo.create_many([
+        make(marker, "-a", chemical_class=marker, price=61.0),
+        make(marker, "-b", chemical_class=marker, price=62.0),
+        make(marker, "-c", chemical_class=marker, therapeutic_class="derma", price=63.0),
+    ])
+
+    everything = await repo.facets()
+    therapeutic = {f.value for f in everything.therapeutic_classes}
+    assert {"cardiac", "derma"} <= therapeutic
+    assert (marker, 3) in [(f.value, f.count) for f in everything.chemical_classes]
+
+    cardiac = await repo.facets("cardiac")
+    assert (marker, 2) in [(f.value, f.count) for f in cardiac.chemical_classes]
+    assert cardiac.price_min <= 61.0 and cardiac.price_max >= 62.0
+    assert {f.value for f in cardiac.therapeutic_classes} == therapeutic   # список класів повний
+
+    # агрегація з префіксом ключа шардінгу йде лише на один шард
+    plan = await client[TEST_DB].command(
+        "aggregate", "medicines",
+        pipeline=[{"$match": {"therapeutic_class": "cardiac"}},
+                  {"$group": {"_id": "$chemical_class", "count": {"$sum": 1}}}],
+        explain=True,
+    )
+    if "shards" in plan:
+        assert len(plan["shards"]) == 1
+
+
 async def test_search_log_roundtrip(client):
     metrics = MongoMetricsAdapter(client, TEST_DB)
     await metrics.ensure_indexes()

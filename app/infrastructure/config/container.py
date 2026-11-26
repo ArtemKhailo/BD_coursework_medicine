@@ -5,12 +5,14 @@
 """
 from __future__ import annotations
 
+from pymongo import AsyncMongoClient
+
 from app.application.commands import (
     ConfigureRateHandler, CreateMedicineHandler, DeleteMedicineHandler,
     IngestDocumentHandler, UpdateMedicineHandler,
 )
 from app.application.queries import (
-    GetAnaloguesHandler, GetMedicineCardHandler, GetStatsHandler,
+    GetAnaloguesHandler, GetMedicineCardHandler, GetMedicineFacetsHandler, GetStatsHandler,
     ListMedicinesHandler, SearchMedicinesHandler,
 )
 from app.infrastructure.settings import Settings
@@ -24,7 +26,12 @@ from app.infrastructure.persistence import (
 class Container:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.documents: MongoDocumentAdapter | None = None
+        # Клієнт MongoDB не відкриває з'єднання в конструкторі (лише при першому запиті),
+        # тому адаптер можна створити одразу, ще до запуску застосунку.
+        self._mongo_client = AsyncMongoClient(settings.mongo.uri, serverSelectionTimeoutMS=3000)
+        self.documents: MongoDocumentAdapter = MongoDocumentAdapter(
+            self._mongo_client, settings.mongo.database,
+        )
         self.search_index: SearchIndexAdapter | None = None
         self.graph: Neo4jGraphAdapter | None = None
         self.cache: RedisCacheAdapter | None = None
@@ -32,25 +39,31 @@ class Container:
         self.queue: QueueAdapter | None = None
 
     async def start(self) -> None:
-        """Створює клієнти (Mongo, ES, Neo4j, Redis, RabbitMQ) та адаптери; ensure_* для індексів."""
-        raise NotImplementedError
+        """Підключення решти сховищ (ES, Neo4j, Redis, RabbitMQ) - на наступних етапах.
+
+        MongoDB уже готова: адаптер створено в конструкторі, а індекси й шардінг
+        налаштовує scripts/load_mongo.py під час завантаження даних.
+        """
 
     async def close(self) -> None:
         """Закриває всі з'єднання."""
-        raise NotImplementedError
+        await self._mongo_client.close()
 
     # --- фабрики обробників (шлях запитів) ---
     def search_medicines_handler(self) -> SearchMedicinesHandler:
         raise NotImplementedError
 
     def get_medicine_card_handler(self) -> GetMedicineCardHandler:
-        raise NotImplementedError
+        return GetMedicineCardHandler(self.documents, cache=self.cache)
+
+    def get_medicine_facets_handler(self) -> GetMedicineFacetsHandler:
+        return GetMedicineFacetsHandler(self.documents)
 
     def get_analogues_handler(self) -> GetAnaloguesHandler:
         raise NotImplementedError
 
     def list_medicines_handler(self) -> ListMedicinesHandler:
-        raise NotImplementedError
+        return ListMedicinesHandler(self.documents)
 
     def get_stats_handler(self) -> GetStatsHandler:
         raise NotImplementedError

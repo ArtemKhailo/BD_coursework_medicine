@@ -1,4 +1,8 @@
-"""Точка входу FastAPI для каталогу препаратів."""
+"""Точка входу FastAPI для каталогу препаратів.
+
+Об'єкти збирає Container (композиційний корінь): він створює адаптери БД
+і підставляє їх в обробники. main.py лише вмикає контролери в застосунок.
+"""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -6,23 +10,16 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
-from pymongo import AsyncMongoClient
 
-from app.application.queries.get_medicine_card_handler import (
-    GetMedicineCardHandler,
-)
-from app.application.queries.list_medicines_handler import (
-    ListMedicinesHandler,
-)
-from app.infrastructure.persistence.mongo_document_adapter import (
-    MongoDocumentAdapter,
-)
+from app.infrastructure.config.container import Container
 from app.infrastructure.settings import load_settings
 from app.presentation.rest.medicine_controller import MedicineController
 
+WEB_DIR = Path(__file__).resolve().parent / "presentation" / "web"
+
 
 class UnavailableHandler:
-    """Заглушка для команд, які ще не підключені."""
+    """Заглушка для команд (create/update/delete), які ще не підключені до UI."""
 
     async def handle(self, *args, **kwargs):
         raise HTTPException(
@@ -33,46 +30,30 @@ class UnavailableHandler:
 
 def create_app(config_path: str = "config.yaml") -> FastAPI:
     settings = load_settings(config_path)
-
-    mongo_client = AsyncMongoClient(
-        settings.mongo.uri,
-        serverSelectionTimeoutMS=3000,
-    )
-
-    # Infrastructure layer
-    documents = MongoDocumentAdapter(
-        mongo_client,
-        settings.mongo.database,
-    )
-
-    # Application layer
-    list_handler = ListMedicinesHandler(documents)
-    card_handler = GetMedicineCardHandler(
-        documents,
-        cache=None,
-    )
+    container = Container(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        await container.start()
         yield
-        await mongo_client.close()
+        await container.close()
 
-    # Presentation layer
     app = FastAPI(
         title="Medicine Catalog API",
         description="API for medicine catalog and filtering",
-        version="1.0.0",
+        version="1.1.0",
         lifespan=lifespan,
     )
 
     unavailable = UnavailableHandler()
 
     controller = MedicineController(
-        list_medicines=list_handler,
-        get_card=card_handler,
+        list_medicines=container.list_medicines_handler(),
+        get_card=container.get_medicine_card_handler(),
         create_medicine=unavailable,
         update_medicine=unavailable,
         delete_medicine=unavailable,
+        get_facets=container.get_medicine_facets_handler(),
     )
 
     app.include_router(controller.router)
@@ -80,13 +61,7 @@ def create_app(config_path: str = "config.yaml") -> FastAPI:
     # Головна сторінка каталогу
     @app.get("/", include_in_schema=False)
     async def home():
-        html_path = (
-            Path(__file__).resolve().parent
-            / "presentation"
-            / "web"
-            / "index.html"
-        )
-        return FileResponse(html_path)
+        return FileResponse(WEB_DIR / "index.html")
 
     # Перевірка роботи сервера
     @app.get("/health", tags=["system"])
