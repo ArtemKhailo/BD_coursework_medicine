@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 pymongo
-elasticsearch[async]
+elasticsearch[async]>=8.19,<9
 neo4j
 redis
 aio-pika
