@@ -289,6 +289,204 @@
             color: #b91c1c;
         }
 
+        /* Вкладки в шапці */
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .tab {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            color: white;
+            padding: 8px 16px;
+        }
+
+        .tab:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .tab.active,
+        .tab.active:hover:not(:disabled) {
+            background: white;
+            color: #176c82;
+        }
+
+        /* Аналітика по шардах */
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 12px;
+            margin: 20px 0;
+        }
+
+        .stat {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .stat-value {
+            margin-top: 6px;
+            font-size: 22px;
+            font-weight: bold;
+            color: #176c82;
+        }
+
+        .stat-value.ok {
+            color: #15803d;
+        }
+
+        .stat-value.bad {
+            color: #b91c1c;
+        }
+
+        .step-title {
+            margin: 30px 0 6px;
+        }
+
+        .step-hint {
+            margin: 0 0 14px;
+            font-size: 14px;
+            color: #64748b;
+        }
+
+        .shard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 14px;
+        }
+
+        .shard-card {
+            min-width: 0;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-top: 4px solid #176c82;
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .shard-card h3 {
+            margin: 0 0 6px;
+        }
+
+        .shard-meta {
+            font-size: 13px;
+            color: #475569;
+            margin: 2px 0;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 8px 10px;
+            text-align: right;
+            border-bottom: 1px solid #edf2f7;
+            white-space: nowrap;
+        }
+
+        .data-table th:first-child,
+        .data-table td:first-child {
+            text-align: left;
+            white-space: normal;
+            min-width: 140px;
+        }
+
+        .data-table td:last-child {
+            white-space: normal;
+        }
+
+        .data-table th {
+            background: #f8fafc;
+            color: #475569;
+            font-weight: 600;
+        }
+
+        .shard-card .table-wrap {
+            margin-top: 10px;
+            border: none;
+            border-radius: 0;
+        }
+
+        .shard-card .data-table {
+            font-size: 12px;
+        }
+
+        .shard-card .data-table th,
+        .shard-card .data-table td {
+            padding: 6px 6px;
+        }
+
+        .shard-card .data-table td:first-child {
+            min-width: 0;
+        }
+
+        .bar {
+            display: inline-block;
+            height: 8px;
+            background: #9cc9d4;
+            border-radius: 4px;
+            margin-right: 6px;
+            vertical-align: middle;
+        }
+
+        .tag {
+            display: inline-block;
+            background: #edf5f7;
+            border: 1px solid #d3e5eb;
+            border-radius: 999px;
+            padding: 2px 8px;
+            margin-left: 4px;
+            font-size: 11px;
+            color: #176c82;
+        }
+
+        .plan {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .plan code {
+            background: #f1f5f9;
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+
+        .notice {
+            background: #fff7ed;
+            border: 1px solid #fed7aa;
+            color: #9a3412;
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-top: 16px;
+            font-size: 14px;
+        }
+
         @media (max-width: 600px) {
             header {
                 padding: 22px 20px;
@@ -311,9 +509,15 @@
 <header>
     <h1>Medicine Catalog</h1>
     <p>Каталог лікарських засобів</p>
+
+    <nav class="tabs">
+        <button type="button" class="tab active" data-view="catalogView">Каталог</button>
+        <button type="button" class="tab" data-view="analyticsView">Аналітика по шардах</button>
+    </nav>
 </header>
 
 <main>
+<div id="catalogView">
     <section class="panel">
         <h2>Фільтрація препаратів</h2>
         <p class="hint">
@@ -432,6 +636,80 @@
             Далі
         </button>
     </div>
+</div>
+
+<!-- Етап 14: один запит, зібраний з усіх шард (map-reduce) -->
+
+<div id="analyticsView" hidden>
+    <section class="panel">
+        <h2>Статистика каталогу з усіх шард</h2>
+        <p class="hint">
+            Кожна шарда рахує часткові підсумки лише за своїми документами (map),
+            застосунок складає їх (reduce) і тільки потім рахує середні ціни та частки.
+            Для перевірки той самий запит виконує вбудована агрегація MongoDB.
+        </p>
+
+        <form id="analyticsForm">
+            <div class="filters">
+                <label>
+                    Групувати за
+                    <select id="groupBy">
+                        <option value="manufacturer">Виробником</option>
+                        <option value="therapeutic_class">Терапевтичним класом</option>
+                    </select>
+                </label>
+
+                <label>
+                    Наявність
+                    <select id="analyticsInStock">
+                        <option value="">Усі</option>
+                        <option value="true">У наявності</option>
+                        <option value="false">Немає в наявності</option>
+                    </select>
+                </label>
+
+                <label>
+                    Рецептурний препарат
+                    <select id="analyticsPrescription">
+                        <option value="">Усі</option>
+                        <option value="true">Так</option>
+                        <option value="false">Ні</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="actions">
+                <button type="submit">Виконати запит</button>
+            </div>
+        </form>
+    </section>
+
+    <p class="status" id="analyticsStatus"></p>
+
+    <div id="analyticsResult" hidden>
+        <div class="summary" id="analyticsSummary"></div>
+        <div id="analyticsNotice"></div>
+
+        <h2 class="step-title">1. Map: часткові підсумки на кожній шарді</h2>
+        <p class="step-hint">
+            Запити на шарди виконуються одночасно. Кожна повертає для кожної групи
+            лише кількість, суму цін, мінімум і максимум, а не готові середні.
+        </p>
+        <div class="shard-grid" id="shardCards"></div>
+
+        <h2 class="step-title">2. Reduce: зведений результат</h2>
+        <p class="step-hint">
+            Суми й кількості складено, з мінімумів узято найменший, з максимумів - найбільший.
+            Середня ціна = загальна сума / загальна кількість.
+        </p>
+        <div class="table-wrap">
+            <table class="data-table" id="groupsTable"></table>
+        </div>
+
+        <h2 class="step-title">3. Той самий запит вбудованою агрегацією MongoDB</h2>
+        <div class="plan" id="nativePlan"></div>
+    </div>
+</div>
 </main>
 
 <!-- Детальна інформація про препарат -->
@@ -1142,6 +1420,258 @@
 
     initFacets();
     loadMedicines();
+
+    // =========================================================== вкладки
+
+    const tabs = document.querySelectorAll(".tab");
+    let analyticsLoaded = false;
+
+    tabs.forEach(tab => {
+        tab.addEventListener("click", () => {
+            tabs.forEach(t => t.classList.toggle("active", t === tab));
+            ["catalogView", "analyticsView"].forEach(id => {
+                document.getElementById(id).hidden = id !== tab.dataset.view;
+            });
+
+            if (tab.dataset.view === "analyticsView" && !analyticsLoaded) {
+                analyticsLoaded = true;
+                loadAnalytics();
+            }
+        });
+    });
+
+    // =========================================================== аналітика (map-reduce)
+
+    const analyticsForm = document.getElementById("analyticsForm");
+    const analyticsStatus = document.getElementById("analyticsStatus");
+    const analyticsResult = document.getElementById("analyticsResult");
+
+    function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) {
+            node.className = className;
+        }
+        if (text !== undefined && text !== null) {
+            node.textContent = text;
+        }
+        return node;
+    }
+
+    function percent(share) {
+        return `${(share * 100).toFixed(1)} %`;
+    }
+
+    function ms(value) {
+        return `${Number(value).toFixed(1)} мс`;
+    }
+
+    function groupLabel(groupBy, key) {
+        return groupBy === "therapeutic_class" ? `${therapeuticLabel(key)} (${key})` : key;
+    }
+
+    function tableRow(cells, header = false) {
+        const tr = document.createElement("tr");
+        cells.forEach(cell => {
+            const td = el(header ? "th" : "td");
+            if (cell instanceof Node) {
+                td.appendChild(cell);
+            } else {
+                td.textContent = cell;
+            }
+            tr.appendChild(td);
+        });
+        return tr;
+    }
+
+    function renderSummary(data) {
+        const summary = document.getElementById("analyticsSummary");
+        summary.replaceChildren();
+
+        const items = [
+            ["Оброблено документів", numberFormat.format(data.total_documents)],
+            ["Шард у запиті", data.sharded ? String(data.shards.length) : "1 (без шардінгу)"],
+            ["Груп у результаті", String(data.groups.length)],
+            ["Map-reduce у застосунку", ms(data.map_reduce_ms),
+             `метадані ${ms(data.lookup_ms)} + map ${ms(data.map_ms)} + reduce ${ms(data.reduce_ms)}`],
+            ["Вбудована агрегація", ms(data.native.elapsed_ms)],
+        ];
+
+        items.forEach(([label, value, note]) => {
+            const card = el("div", "stat");
+            card.append(el("div", "stat-label", label), el("div", "stat-value", value));
+            if (note) {
+                card.appendChild(el("div", "stat-label", note));
+            }
+            summary.appendChild(card);
+        });
+
+        const check = el("div", "stat");
+        check.append(
+            el("div", "stat-label", "Результати двох способів"),
+            el("div", `stat-value ${data.matches_native ? "ok" : "bad"}`,
+               data.matches_native ? "збігаються" : "різняться")
+        );
+        summary.appendChild(check);
+
+        const notice = document.getElementById("analyticsNotice");
+        notice.replaceChildren();
+        if (!data.sharded) {
+            notice.appendChild(el("div", "notice",
+                "Колекція в цій базі не шардована (наприклад, MongoDB Atlas), тому map виконано " +
+                "на одній частині. Розподіл по шардах видно на локальному кластері з трьома шардами."));
+        }
+    }
+
+    function renderShards(data) {
+        const grid = document.getElementById("shardCards");
+        grid.replaceChildren();
+
+        data.shards.forEach(shard => {
+            const card = el("article", "shard-card");
+            card.appendChild(el("h3", null, shard.shard === "unsharded" ? "Уся колекція" : shard.shard));
+            card.appendChild(el("p", "shard-meta",
+                `Документів: ${numberFormat.format(shard.documents)} · груп: ${shard.groups.length} · ${ms(shard.elapsed_ms)}`));
+            if (shard.targeted.length) {
+                card.appendChild(el("p", "shard-meta",
+                    `mongos надіслав запит на: ${shard.targeted.join(", ")}`));
+                const others = shard.targeted.filter(name => name !== shard.shard);
+                if (others.length) {
+                    card.appendChild(el("p", "shard-meta",
+                        `${others.join(", ")}: межа діапазону збігається з початком її діапазону, документів звідти 0`));
+                }
+            }
+
+            const table = el("table", "data-table");
+            table.appendChild(tableRow(["Група", "Кількість", "Сума цін, грн"], true));
+            shard.groups.slice(0, 5).forEach(g => {
+                table.appendChild(tableRow([
+                    data.group_by === "therapeutic_class" ? therapeuticLabel(g.key) : g.key,
+                    numberFormat.format(g.count),
+                    numberFormat.format(Math.round(g.price_sum)),
+                ]));
+            });
+            const wrap = el("div", "table-wrap");
+            wrap.appendChild(table);
+            card.appendChild(wrap);
+
+            if (shard.groups.length > 5) {
+                card.appendChild(el("p", "shard-meta", `…і ще ${shard.groups.length - 5} груп`));
+            }
+            grid.appendChild(card);
+        });
+    }
+
+    function renderGroups(data) {
+        const table = document.getElementById("groupsTable");
+        table.replaceChildren();
+        table.appendChild(tableRow([
+            data.group_by === "therapeutic_class" ? "Терапевтичний клас" : "Виробник",
+            "Препаратів", "Частка", "Середня ціна", "Мін", "Макс",
+            "Рецептурних", "У наявності", "Шарди",
+        ], true));
+
+        const maxCount = Math.max(...data.groups.map(g => g.count), 1);
+
+        data.groups.forEach(g => {
+            const share = el("span");
+            const bar = el("span", "bar");
+            bar.style.width = `${Math.max(2, Math.round(60 * g.count / maxCount))}px`;
+            share.append(bar, document.createTextNode(percent(g.count / data.total_documents)));
+
+            const shards = el("span");
+            g.shards.forEach(name => shards.appendChild(el("span", "tag", name)));
+
+            table.appendChild(tableRow([
+                groupLabel(data.group_by, g.key),
+                numberFormat.format(g.count),
+                share,
+                formatPrice(g.avg_price),
+                g.min_price.toFixed(2),
+                g.max_price.toFixed(2),
+                percent(g.prescription_share),
+                percent(g.in_stock_share),
+                shards,
+            ]));
+        });
+    }
+
+    function renderNative(data) {
+        const plan = document.getElementById("nativePlan");
+        plan.replaceChildren();
+        const n = data.native;
+
+        const line = (label, value) => {
+            const p = el("div");
+            p.append(el("strong", null, `${label}: `));
+            if (Array.isArray(value)) {
+                value.forEach((v, i) => {
+                    if (i) {
+                        p.append(document.createTextNode(" → "));
+                    }
+                    p.append(el("code", null, v));
+                });
+            } else {
+                p.append(document.createTextNode(value));
+            }
+            return p;
+        };
+
+        plan.append(
+            line("Час виконання", ms(n.elapsed_ms)),
+            line("Шарди, що виконували частину запиту", n.shards.length ? n.shards.join(", ") : "-"),
+        );
+        if (n.shards_part.length) {
+            plan.append(
+                line("Частина на шардах (map)", n.shards_part),
+                line("Частина злиття (reduce)", n.merger_part),
+                line("Де виконувалося злиття", n.merger || "-"),
+            );
+        } else {
+            plan.append(el("div", null,
+                "План не містить поділу на частини: колекція не шардована, запит виконав один сервер."));
+        }
+    }
+
+    async function loadAnalytics() {
+        const params = new URLSearchParams({
+            group_by: document.getElementById("groupBy").value,
+        });
+        const inStock = document.getElementById("analyticsInStock").value;
+        const prescription = document.getElementById("analyticsPrescription").value;
+        if (inStock) {
+            params.set("in_stock", inStock);
+        }
+        if (prescription) {
+            params.set("is_prescription", prescription);
+        }
+
+        analyticsStatus.textContent = "Виконується запит на всіх шардах...";
+
+        try {
+            const response = await fetch(`/api/analytics/stats?${params.toString()}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+
+            renderSummary(data);
+            renderShards(data);
+            renderGroups(data);
+            renderNative(data);
+
+            analyticsResult.hidden = false;
+            analyticsStatus.textContent = "";
+        } catch (error) {
+            console.error("Помилка аналітики:", error);
+            analyticsResult.hidden = true;
+            analyticsStatus.textContent = "Не вдалося виконати запит. Перевірте підключення до сервера.";
+        }
+    }
+
+    analyticsForm.addEventListener("submit", event => {
+        event.preventDefault();
+        loadAnalytics();
+    });
 </script>
 
 </body>

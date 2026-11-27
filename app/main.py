@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 
 from app.infrastructure.config.container import Container
 from app.infrastructure.settings import load_settings
+from app.presentation.rest.analytics_controller import AnalyticsController
 from app.presentation.rest.medicine_controller import MedicineController
 
 WEB_DIR = Path(__file__).resolve().parent / "presentation" / "web"
@@ -41,7 +42,7 @@ def create_app(config_path: str = "config.yaml") -> FastAPI:
     app = FastAPI(
         title="Medicine Catalog API",
         description="API for medicine catalog and filtering",
-        version="1.1.0",
+        version="1.2.0",
         lifespan=lifespan,
     )
 
@@ -57,6 +58,10 @@ def create_app(config_path: str = "config.yaml") -> FastAPI:
     )
 
     app.include_router(controller.router)
+
+    # Етап 14: статистика з усіх шард (map-reduce)
+    analytics = AnalyticsController(get_shard_stats=container.get_shard_stats_handler())
+    app.include_router(analytics.router)
 
     # Головна сторінка каталогу
     @app.get("/", include_in_schema=False)

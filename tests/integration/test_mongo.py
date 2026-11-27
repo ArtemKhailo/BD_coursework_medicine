@@ -216,3 +216,36 @@ async def test_logs_are_partitioned_by_time(client):
 
     indexes = await client[TEST_DB]["search_log"].index_information()
     assert indexes["created_at"]["expireAfterSeconds"] == module.SEARCH_LOG_TTL_DAYS * module.DAY_SECONDS
+
+
+async def test_map_reduce_over_shards_matches_native_aggregation(client, repo, marker, cleanup):
+    """Етап 14: map на кожній шарді окремо + reduce дає те саме, що вбудована агрегація."""
+    from app.domain.services.stats_reducer import StatsReducer
+    from app.infrastructure.persistence.mongo_shard_analytics_adapter import (
+        MongoShardAnalyticsAdapter,
+    )
+
+    classes = ["anti diabetic", "cardiac", "neuro cns", "respiratory"]   # різні діапазони ключа
+    await repo.create_many([
+        make(marker, f"-{i}", therapeutic_class=classes[i % 4], manufacturer=marker,
+             price=50.0 + i, is_prescription=i % 2 == 0)
+        for i in range(12)
+    ])
+    analytics = MongoShardAnalyticsAdapter(client, TEST_DB)
+    reducer = StatsReducer()
+
+    partitions = await analytics.partitions()
+    assert len(partitions) >= 2, "medicine_test має бути розбита на діапазони кількох шард"
+    partials = [await analytics.map_partition(p, "manufacturer", {}) for p in partitions]
+    for partial in partials:
+        assert partial.shard in partial.targeted          # map іде на шарду-власника
+
+    reduced = reducer.reduce(partials)
+    native = await analytics.aggregate("manufacturer", {})
+    assert reducer.same_result(reduced, native.groups)
+    assert native.shards_part and native.merger_part      # MongoDB теж ділить запит на map і reduce
+
+    mine = next(g for g in reduced if g.key == marker)
+    assert mine.count == 12 and len(mine.shards) >= 2
+    assert mine.avg_price == pytest.approx(55.5)          # (50 + ... + 61) / 12
+    assert mine.prescription_share == pytest.approx(0.5)

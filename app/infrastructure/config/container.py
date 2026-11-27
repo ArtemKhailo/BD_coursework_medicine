@@ -12,14 +12,16 @@ from app.application.commands import (
     IngestDocumentHandler, UpdateMedicineHandler,
 )
 from app.application.queries import (
-    GetAnaloguesHandler, GetMedicineCardHandler, GetMedicineFacetsHandler, GetStatsHandler,
-    ListMedicinesHandler, SearchMedicinesHandler,
+    GetAnaloguesHandler, GetMedicineCardHandler, GetMedicineFacetsHandler, GetShardStatsHandler,
+    GetStatsHandler, ListMedicinesHandler, SearchMedicinesHandler,
 )
+from app.domain.services.stats_reducer import StatsReducer
 from app.infrastructure.settings import Settings
 from app.infrastructure.messaging import QueueAdapter
 from app.infrastructure.observability import MongoMetricsAdapter
 from app.infrastructure.persistence import (
-    MongoDocumentAdapter, Neo4jGraphAdapter, RedisCacheAdapter, SearchIndexAdapter,
+    MongoDocumentAdapter, MongoShardAnalyticsAdapter, Neo4jGraphAdapter, RedisCacheAdapter,
+    SearchIndexAdapter,
 )
 
 
@@ -30,6 +32,9 @@ class Container:
         # тому адаптер можна створити одразу, ще до запуску застосунку.
         self._mongo_client = AsyncMongoClient(settings.mongo.uri, serverSelectionTimeoutMS=3000)
         self.documents: MongoDocumentAdapter = MongoDocumentAdapter(
+            self._mongo_client, settings.mongo.database,
+        )
+        self.shard_analytics: MongoShardAnalyticsAdapter = MongoShardAnalyticsAdapter(
             self._mongo_client, settings.mongo.database,
         )
         self.search_index: SearchIndexAdapter | None = None
@@ -64,6 +69,9 @@ class Container:
 
     def list_medicines_handler(self) -> ListMedicinesHandler:
         return ListMedicinesHandler(self.documents)
+
+    def get_shard_stats_handler(self) -> GetShardStatsHandler:
+        return GetShardStatsHandler(self.shard_analytics, StatsReducer())
 
     def get_stats_handler(self) -> GetStatsHandler:
         raise NotImplementedError

@@ -219,6 +219,21 @@ python scripts/bench_sharding.py report      # results/bench/summary.csv і thro
 Для графіка потрібен `pip install matplotlib`. Порядок важливий: якщо створити базу вже
 на 5 шардах, основна колекція може лягти на shard4rs/shard5rs, а не на shard1-3, як у звіті.
 
+### 6. Етап 14: один запит з усіх шард (map-reduce)
+
+```
+python scripts/mapreduce_demo.py                              # статистика за виробниками
+python scripts/mapreduce_demo.py --group-by therapeutic_class
+python -m uvicorn app.main:create_app --factory --reload      # вкладка «Аналітика по шардах»
+```
+
+Сервіс читає з `config.chunks`, які діапазони ключа лежать на кожній шарді, і паралельно
+виконує на кожній шарді часткову агрегацію (map: кількість, сума цін, мінімум, максимум).
+Застосунок зводить часткові підсумки (reduce) і лише потім рахує середні та частки.
+Для перевірки той самий запит виконується вбудованою агрегацією MongoDB (у `explain` видно
+`shardsPart` і `mergerPart`), і результати порівнюються. API: `GET /api/analytics/stats`.
+На нешардованій базі (MongoDB Atlas у Render) уся колекція обробляється як одна частина.
+
 ## Контейнеризація
 
 Docker + Docker Compose дають однакове середовище для всієї команди і дозволяють підняти
