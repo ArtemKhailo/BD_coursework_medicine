@@ -3,60 +3,105 @@
 Створює клієнти БД, адаптери та підставляє їх у обробники (інверсія залежностей).
 Решта коду працює лише з інтерфейсами.
 """
+
 from __future__ import annotations
 
 from pymongo import AsyncMongoClient
+from elasticsearch import AsyncElasticsearch
+from redis.asyncio import Redis
 
 from app.application.commands import (
-    ConfigureRateHandler, CreateMedicineHandler, DeleteMedicineHandler,
-    IngestDocumentHandler, UpdateMedicineHandler,
+    ConfigureRateHandler,
+    CreateMedicineHandler,
+    DeleteMedicineHandler,
+    IngestDocumentHandler,
+    UpdateMedicineHandler,
 )
+
 from app.application.queries import (
-    GetAnaloguesHandler, GetMedicineCardHandler, GetMedicineFacetsHandler, GetShardStatsHandler,
-    GetStatsHandler, ListMedicinesHandler, SearchMedicinesHandler,
+    GetAnaloguesHandler,
+    GetMedicineCardHandler,
+    GetMedicineFacetsHandler,
+    GetShardStatsHandler,
+    GetStatsHandler,
+    ListMedicinesHandler,
+    SearchMedicinesHandler,
 )
+
+from app.domain.services.query_normalizer import QueryNormalizer
 from app.domain.services.stats_reducer import StatsReducer
 from app.infrastructure.settings import Settings
 from app.infrastructure.messaging import QueueAdapter
 from app.infrastructure.observability import MongoMetricsAdapter
+
 from app.infrastructure.persistence import (
-    MongoDocumentAdapter, MongoShardAnalyticsAdapter, Neo4jGraphAdapter, RedisCacheAdapter,
+    MongoDocumentAdapter,
+    MongoShardAnalyticsAdapter,
+    Neo4jGraphAdapter,
+    RedisCacheAdapter,
     SearchIndexAdapter,
 )
-
 
 class Container:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        # Клієнт MongoDB не відкриває з'єднання в конструкторі (лише при першому запиті),
-        # тому адаптер можна створити одразу, ще до запуску застосунку.
+
+        # MongoDB
         self._mongo_client = AsyncMongoClient(settings.mongo.uri, serverSelectionTimeoutMS=3000)
-        self.documents: MongoDocumentAdapter = MongoDocumentAdapter(
-            self._mongo_client, settings.mongo.database,
-        )
-        self.shard_analytics: MongoShardAnalyticsAdapter = MongoShardAnalyticsAdapter(
-            self._mongo_client, settings.mongo.database,
-        )
-        self.search_index: SearchIndexAdapter | None = None
+
+        self.documents: MongoDocumentAdapter = MongoDocumentAdapter(self._mongo_client, settings.mongo.database,)
+
+        # Аналітика по шардах
+        self.shard_analytics: MongoShardAnalyticsAdapter = (MongoShardAnalyticsAdapter(self._mongo_client,settings.mongo.database,))
+
+        # Elasticsearch
+        self._elastic_client = AsyncElasticsearch(settings.elastic.url,request_timeout=30)
+
+        self.search_index = SearchIndexAdapter(self._elastic_client, settings.elastic.index)
+
+        # Redis
+        self._redis_client = Redis.from_url(settings.redis.url, decode_responses=True, socket_connect_timeout=2, socket_timeout=2)
+
+        self.cache = RedisCacheAdapter(self._redis_client)
+
+        # Метрики пошукових запитів
+        self.metrics = MongoMetricsAdapter(self._mongo_client, settings.mongo.database)
+
+        # Компоненти, які ще не реалізовано
         self.graph: Neo4jGraphAdapter | None = None
-        self.cache: RedisCacheAdapter | None = None
-        self.metrics: MongoMetricsAdapter | None = None
         self.queue: QueueAdapter | None = None
 
     async def start(self) -> None:
-        """Підключення решти сховищ (ES, Neo4j, Redis, RabbitMQ) - на наступних етапах.
+        """Підготовка застосунку до роботи.
 
-        MongoDB уже готова: адаптер створено в конструкторі, а індекси й шардінг
-        налаштовує scripts/load_mongo.py під час завантаження даних.
+        MongoDB та Elasticsearch наповнюються окремими
+        скриптами завантаження даних.
+
+        Клієнти відкривають з'єднання під час звернення.
         """
 
     async def close(self) -> None:
-        """Закриває всі з'єднання."""
-        await self._mongo_client.close()
+        """Закриває всі з'єднання зі сховищами."""
 
-    # --- фабрики обробників (шлях запитів) ---
+        try:
+            await self._elastic_client.close()
+        finally:
+            try:
+                await self._redis_client.aclose()
+            finally:
+                await self._mongo_client.close()
+
+    # Фабрики обробників (шлях запитів)
+
     def search_medicines_handler(self) -> SearchMedicinesHandler:
-        raise NotImplementedError
+        return SearchMedicinesHandler(
+            search_index=self.search_index,
+            cache=self.cache,
+            documents=self.documents,
+            metrics=self.metrics,
+            normalizer=QueryNormalizer(),
+            cache_ttl_seconds=self.settings.redis.search_ttl_seconds
+        )
 
     def get_medicine_card_handler(self) -> GetMedicineCardHandler:
         return GetMedicineCardHandler(self.documents, cache=self.cache)
@@ -76,7 +121,8 @@ class Container:
     def get_stats_handler(self) -> GetStatsHandler:
         raise NotImplementedError
 
-    # --- фабрики обробників (шлях команд) ---
+    # Фабрики обробників (шлях команд)
+
     def ingest_document_handler(self) -> IngestDocumentHandler:
         raise NotImplementedError
 

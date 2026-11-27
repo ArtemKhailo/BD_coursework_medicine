@@ -501,6 +501,30 @@
                 flex-direction: column;
             }
         }
+        /* Етап 15: повнотекстовий пошук */
+        .tabs { flex-wrap: wrap; }
+        #searchCards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr));
+            gap: 16px;
+        }
+        #searchCards .medicine-card { min-width: 0; overflow-wrap: anywhere; }
+        .search-snippets {
+            margin-top: 12px;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            background: #f5f7fa;
+            border-radius: 7px;
+        }
+        .search-snippets mark {
+            background: #fef08a;
+            color: #263445;
+            border-radius: 2px;
+        }
+        #searchCards .details-button { margin-top: auto; }
+        #searchCards .search-card-actions { margin-top: auto; padding-top: 18px; }
+        .search-cache-hit { color: #15803d; }
+        .search-cache-miss { color: #9a5800; }
     </style>
 </head>
 
@@ -513,6 +537,7 @@
     <nav class="tabs">
         <button type="button" class="tab active" data-view="catalogView">Каталог</button>
         <button type="button" class="tab" data-view="analyticsView">Аналітика по шардах</button>
+        <button type="button" class="tab" data-view="searchView">Повнотекстовий пошук</button>
     </nav>
 </header>
 
@@ -708,6 +733,75 @@
 
         <h2 class="step-title">3. Той самий запит вбудованою агрегацією MongoDB</h2>
         <div class="plan" id="nativePlan"></div>
+    </div>
+</div>
+<!-- Етап 15: Elasticsearch та Redis -->
+<div id="searchView" hidden>
+    <section class="panel">
+        <h2>Повнотекстовий пошук препаратів</h2>
+        <p class="hint">
+            Elasticsearch шукає за назвою та текстовим описом, MongoDB надає
+            характеристики препаратів, Redis кешує результати на 60 секунд
+            (за стандартною конфігурацією).
+        </p>
+        <form id="fullTextForm">
+            <div class="filters">
+                <label>
+                    Пошуковий запит
+                    <input id="fullTextQuery" type="search" required
+                           placeholder="Наприклад: paracetamol або headache" autocomplete="off">
+                    <span class="hint">Для англомовного датасету вводьте запити англійською.</span>
+                </label>
+                <label>
+                    Максимальна ціна, грн
+                    <input id="fullTextPrice" type="number" min="0" step="0.01" placeholder="Без обмежень">
+                </label>
+                <label>
+                    Рецептурний препарат
+                    <select id="fullTextPrescription">
+                        <option value="">Усі</option>
+                        <option value="true">Так</option>
+                        <option value="false">Ні</option>
+                    </select>
+                </label>
+                <label>
+                    Максимальна кількість результатів
+                    <select id="fullTextLimit">
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </label>
+            </div>
+            <div class="actions">
+                <button id="fullTextSubmit" type="submit">Знайти препарати</button>
+                <button type="reset">Скинути</button>
+            </div>
+        </form>
+        <p class="hint">Збіг у тексті може стосуватися показань або побічних ефектів.
+            Каталог є навчальним і не призначений для вибору лікування.</p>
+    </section>
+    <p class="status" id="fullTextStatus" role="status" aria-live="polite">Введіть пошуковий запит.</p>
+    <div id="fullTextResult" hidden>
+        <div class="summary">
+            <div class="stat">
+                <div class="stat-label">Повернуто результатів</div>
+                <div class="stat-value" id="fullTextTotal"></div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Час пошуку (на сервері)</div>
+                <div class="stat-value" id="fullTextLatency"></div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Кеш Redis</div>
+                <div class="stat-value" id="fullTextCache"></div>
+            </div>
+        </div>
+        <div class="results-header"><h2>Результати пошуку</h2></div>
+        <p class="hint">Точні збіги передують нечітким; score — оцінка релевантності, а не медичної ефективності.</p>
+        <div id="searchCards"></div>
     </div>
 </div>
 </main>
@@ -1429,7 +1523,7 @@
     tabs.forEach(tab => {
         tab.addEventListener("click", () => {
             tabs.forEach(t => t.classList.toggle("active", t === tab));
-            ["catalogView", "analyticsView"].forEach(id => {
+            ["catalogView", "analyticsView", "searchView"].forEach(id => {
                 document.getElementById(id).hidden = id !== tab.dataset.view;
             });
 
@@ -1671,6 +1765,130 @@
     analyticsForm.addEventListener("submit", event => {
         event.preventDefault();
         loadAnalytics();
+    });
+    // =========================================================== повнотекстовий пошук (етап 15)
+
+    const fullTextForm = document.getElementById("fullTextForm");
+    const fullTextStatus = document.getElementById("fullTextStatus");
+    const fullTextResult = document.getElementById("fullTextResult");
+    const fullTextSubmit = document.getElementById("fullTextSubmit");
+    const searchCards = document.getElementById("searchCards");
+    let fullTextRequest = 0;
+
+    // Elasticsearch екранує HTML у фрагментах. Декодуємо сутності лише як текст.
+    function decodeSearchText(value) {
+        const named = {amp: "&", lt: "<", gt: ">", quot: '"', apos: "'"};
+        return value.replace(/&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos);/gi, (match, code) => {
+            const key = code.toLowerCase();
+            if (key[0] !== "#") return named[key] ?? match;
+            const point = key.startsWith("#x")
+                ? Number.parseInt(key.slice(2), 16)
+                : Number.parseInt(key.slice(1), 10);
+            return point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)
+                ? String.fromCodePoint(point) : match;
+        });
+    }
+
+    // Не вставляємо HTML з API через innerHTML. Створюємо лише власні mark і текстові вузли.
+    function renderSearchSnippet(value) {
+        const paragraph = document.createElement("p");
+        let marked = false;
+        for (const part of String(value).split(/(<em>|<\/em>)/g)) {
+            if (part === "<em>") { marked = true; continue; }
+            if (part === "</em>") { marked = false; continue; }
+            const text = decodeSearchText(part);
+            if (marked) {
+                paragraph.appendChild(el("mark", null, text));
+            } else {
+                paragraph.appendChild(document.createTextNode(text));
+            }
+        }
+        return paragraph;
+    }
+
+    function renderFullText(data) {
+        document.getElementById("fullTextTotal").textContent = numberFormat.format(data.total);
+        document.getElementById("fullTextLatency").textContent = `${data.latency_ms} мс`;
+        const cache = document.getElementById("fullTextCache");
+        cache.textContent = data.cache_hit ? "HIT" : "MISS";
+        cache.className = `stat-value ${data.cache_hit ? "search-cache-hit" : "search-cache-miss"}`;
+        cache.title = data.cache_hit ? "Результат отримано з кешу" : "Результат не отримано з кешу";
+        searchCards.replaceChildren();
+
+        for (const item of data.items) {
+            const card = el("article", "medicine-card");
+            const title = el("h3", null, item.name);
+            const category = el("p", null, `Терапевтичний клас: ${therapeuticLabel(item.therapeutic_class)}`);
+            const prescription = el("p", null, item.is_prescription ? "За рецептом" : "Без рецепта");
+            const price = el("div", "price", formatPrice(item.price));
+            const score = el("p", null, `Релевантність: ${item.score == null ? "—" : Number(item.score).toFixed(2)}`);
+            card.append(title, category, prescription, price, score);
+
+            if (Array.isArray(item.snippets) && item.snippets.length) {
+                const snippets = el("div", "search-snippets");
+                snippets.appendChild(el("strong", null, "Знайдені фрагменти"));
+                for (const snippet of item.snippets) {
+                    snippets.appendChild(renderSearchSnippet(snippet));
+                }
+                card.appendChild(snippets);
+            }
+
+            const actions = el("div", "search-card-actions");
+            const details = el("button", null, "Детальніше");
+            details.type = "button";
+            details.addEventListener("click", () => openMedicineDetails(item.medicine_id));
+            actions.appendChild(details);
+            card.appendChild(actions);
+            searchCards.appendChild(card);
+        }
+        fullTextResult.hidden = false;
+        fullTextStatus.textContent = data.items.length ? "" : "За цим запитом нічого не знайдено.";
+    }
+
+    async function loadFullText() {
+        const q = document.getElementById("fullTextQuery").value.trim();
+        if (!q) {
+            fullTextStatus.textContent = "Введіть непорожній пошуковий запит.";
+            return;
+        }
+        const params = new URLSearchParams({
+            q,
+            limit: document.getElementById("fullTextLimit").value
+        });
+        const price = document.getElementById("fullTextPrice").value;
+        const prescription = document.getElementById("fullTextPrescription").value;
+        if (price !== "") params.set("price_max", price);
+        if (prescription !== "") params.set("is_prescription", prescription);
+
+        const request = ++fullTextRequest;
+        fullTextSubmit.disabled = true;
+        fullTextResult.hidden = true;
+        fullTextStatus.textContent = "Виконується пошук...";
+        try {
+            const response = await fetch(`/api/search?${params.toString()}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (request !== fullTextRequest) return;
+            renderFullText(data);
+        } catch (error) {
+            if (request !== fullTextRequest) return;
+            console.error("Помилка повнотекстового пошуку:", error);
+            fullTextStatus.textContent = `Не вдалося виконати пошук (${error.message}). Перевірте сервер та Elasticsearch.`;
+        } finally {
+            if (request === fullTextRequest) fullTextSubmit.disabled = false;
+        }
+    }
+
+    fullTextForm.addEventListener("submit", event => {
+        event.preventDefault();
+        loadFullText();
+    });
+    fullTextForm.addEventListener("reset", () => {
+        ++fullTextRequest;
+        fullTextSubmit.disabled = false;
+        searchCards.replaceChildren();
+        fullTextResult.hidden = true;
+        fullTextStatus.textContent = "Введіть пошуковий запит.";
     });
 </script>
 

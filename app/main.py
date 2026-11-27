@@ -15,6 +15,7 @@ from app.infrastructure.config.container import Container
 from app.infrastructure.settings import load_settings
 from app.presentation.rest.analytics_controller import AnalyticsController
 from app.presentation.rest.medicine_controller import MedicineController
+from app.presentation.rest.search_controller import SearchController
 
 WEB_DIR = Path(__file__).resolve().parent / "presentation" / "web"
 
@@ -35,19 +36,22 @@ def create_app(config_path: str = "config.yaml") -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await container.start()
-        yield
-        await container.close()
+        try:
+            await container.start()
+            yield
+        finally:
+            await container.close()
 
     app = FastAPI(
         title="Medicine Catalog API",
-        description="API for medicine catalog and filtering",
-        version="1.2.0",
+        description="API for medicine catalog, filtering and full-text search",
+        version="1.3.0",
         lifespan=lifespan,
     )
 
     unavailable = UnavailableHandler()
 
+    # Каталог препаратів
     controller = MedicineController(
         list_medicines=container.list_medicines_handler(),
         get_card=container.get_medicine_card_handler(),
@@ -62,6 +66,10 @@ def create_app(config_path: str = "config.yaml") -> FastAPI:
     # Етап 14: статистика з усіх шард (map-reduce)
     analytics = AnalyticsController(get_shard_stats=container.get_shard_stats_handler())
     app.include_router(analytics.router)
+
+    # Етап 15: повнотекстовий пошук із кешуванням
+    search = SearchController(search_medicines=container.search_medicines_handler())
+    app.include_router(search.router)
 
     # Головна сторінка каталогу
     @app.get("/", include_in_schema=False)
