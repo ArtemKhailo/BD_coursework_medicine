@@ -4,7 +4,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, AsyncIterator
 from uuid import UUID
 
+from elasticsearch import ApiError, TransportError
 from elasticsearch.helpers import async_bulk
+
+from app.domain.errors import SearchUnavailableError
 
 from app.domain.entities.search_document import SearchDocument, SearchHit
 from app.domain.ports.outbound.search_index import SearchIndex
@@ -138,9 +141,10 @@ class SearchIndexAdapter(SearchIndex):
                 if search_after is not None:
                     params["search_after"] = search_after
 
-                response = await self._client.search(
-                    **params
-                )
+                try:
+                    response = await self._client.search(**params)
+                except (ApiError, TransportError) as exc:
+                    raise SearchUnavailableError("Elasticsearch недоступний") from exc
                 if response.get("timed_out"):
                     raise TimeoutError("Перевищено час виконання пошуку")
 
@@ -200,4 +204,4 @@ class SearchIndexAdapter(SearchIndex):
             id = str(medicine_id)
         )
 
-        return response.get("result") == "deleted"
+        return response.get("result") == "deleted"

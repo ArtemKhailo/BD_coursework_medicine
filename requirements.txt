@@ -13,4 +13,3 @@ pytest
 pytest-asyncio
 matplotlib
 httpx
-booktype

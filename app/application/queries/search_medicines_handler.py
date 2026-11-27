@@ -14,6 +14,10 @@ from app.domain.services.query_normalizer import QueryNormalizer
 
 logger = logging.getLogger(__name__)
 
+# Верхня межа переглянутих збігів ES при пост-фільтрації (захист від повного проходу індексу).
+MAX_SCANNED_HITS = 2000
+
+
 class SearchMedicinesHandler(SearchMedicines):
     def __init__(self, search_index: SearchIndex, cache: CacheStore,
                  documents: DocumentRepository, metrics: MetricsSink,
@@ -105,6 +109,7 @@ class SearchMedicinesHandler(SearchMedicines):
         items = []
 
         batch_size = 200 if filters else query.limit
+        scanned = 0
 
         async for hits in self._search_index.search_batches(normalized, batch_size=batch_size):
 
@@ -112,6 +117,7 @@ class SearchMedicinesHandler(SearchMedicines):
             ids = [hit.medicine_id for hit in hits]
 
             medicines = await self._documents.by_ids(ids)
+            scanned += len(hits)
 
             medicines_by_id = {medicine.medicine_id: medicine for medicine in medicines}
 
@@ -145,7 +151,7 @@ class SearchMedicinesHandler(SearchMedicines):
                 if len(items) >= query.limit:
                     break
 
-            if len(items) >= query.limit:
+            if len(items) >= query.limit or scanned >= MAX_SCANNED_HITS:
                 break
 
         # Формування підсумкового результату
@@ -159,4 +165,4 @@ class SearchMedicinesHandler(SearchMedicines):
             logger.warning("Не вдалося зберегти результат у Redis", exc_info=True)
 
         # Запис метрик та повернення результатів
-        return await self._finish(result, query.raw, normalized, False, started)
+        return await self._finish(result, query.raw, normalized, False, started)

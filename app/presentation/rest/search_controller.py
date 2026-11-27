@@ -2,10 +2,11 @@
 """REST: повнотекстовий пошук препаратів."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.application.dto.search import SearchQuery, SearchResult
 from app.application.ports.inbound.search_medicines import SearchMedicines
+from app.domain.errors import SearchUnavailableError
 
 
 class SearchController:
@@ -33,4 +34,8 @@ class SearchController:
 
         query = SearchQuery(raw=q, filters=filters, limit=limit)
 
-        return await self._search.handle(query)
+        try:
+            return await self._search.handle(query)
+        except (SearchUnavailableError, TimeoutError) as exc:
+            raise HTTPException(status_code=503,
+                                detail="Повнотекстовий пошук тимчасово недоступний") from exc

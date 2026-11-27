@@ -86,6 +86,11 @@ async def test_filters_continue_into_next_batch(env):
 async def test_preserves_ranking_and_skips_missing_documents(env):
     first, second, missing = [make_medicine(name) for name in ("first", "second", "missing")]
     batches(env, [make_hit(first, 30), make_hit(missing, 20), make_hit(second, 10)])
+    env.documents.by_ids.return_value = [second, first]  # інший порядок, missing відсутній
+    result = await env.handler.handle(SearchQuery(raw="test", limit=10))
+    assert [i.medicine_id for i in result.items] == [first.medicine_id, second.medicine_id]
+    assert [i.score for i in result.items] == [30.0, 10.0]
+    assert result.total == 2
 
 async def test_no_matches_returns_empty_result(env):
     batches(env)
@@ -143,3 +148,24 @@ def test_cache_key_includes_filters_and_limit(env):
     assert key("test", {}, 10) != key("test", {"is_prescription": False}, 10)
 
     assert key("test", {}, 10) != key("other", {}, 10)
+
+async def test_selective_filter_stops_after_scan_limit(env, monkeypatch):
+    import app.application.queries.search_medicines_handler as module
+    monkeypatch.setattr(module, "MAX_SCANNED_HITS", 4)
+    expensive = [make_medicine(f"e{i}", 999.0) for i in range(10)]
+    batches(env, *[[make_hit(m)] * 1 for m in expensive])
+    env.documents.by_ids.side_effect = [[m] for m in expensive]
+    result = await env.handler.handle(SearchQuery(raw="test", filters={"price_max": 1}, limit=5))
+    assert result.items == []
+    assert env.documents.by_ids.await_count == 4
+
+
+async def test_index_error_propagates_as_unavailable(env):
+    from app.domain.errors import SearchUnavailableError
+
+    async def broken(*args, **kwargs):
+        raise SearchUnavailableError("down")
+        yield  # pragma: no cover
+    env.index.search_batches.side_effect = broken
+    with pytest.raises(SearchUnavailableError):
+        await env.handler.handle(SearchQuery(raw="test"))

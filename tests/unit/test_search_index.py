@@ -74,3 +74,10 @@ async def test_timeout_is_not_treated_as_empty_result(client):
     client.search.return_value = {"timed_out": True, "hits": {"hits": []}}
     with pytest.raises(TimeoutError):
         await SearchIndexAdapter(client).search("test")
+
+async def test_transport_error_becomes_search_unavailable(client):
+    from elasticsearch import TransportError
+    from app.domain.errors import SearchUnavailableError
+    client.search.side_effect = TransportError("connection refused")
+    with pytest.raises(SearchUnavailableError):
+        await SearchIndexAdapter(client).search("test")

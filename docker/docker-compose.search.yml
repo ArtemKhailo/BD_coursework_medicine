@@ -1,36 +1,46 @@
-  # Elasticsearch та Redis (етап 15)
-  #
-  # Запуск із кореня репозиторію:
-  # docker compose -f docker/docker-compose.search.yml up -d
+# Elasticsearch та Redis (етап 15)
+#
+# Запуск із кореня репозиторію:
+# docker compose -f docker/docker-compose.search.yml up -d --wait
 
-  name: medicine-search
+name: medicine-search
 
-  services:
-    elasticsearch:
-      image: docker.elastic.co/elasticsearch/elasticsearch:8.19.26
-      container_name: medicine-elasticsearch
-      environment:
-        discovery.type: single-node
-        xpack.security.enabled: "false"
-        ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-      ports:
-        - "127.0.0.1:9200:9200"
-      volumes:
-        - elastic_data:/usr/share/elasticsearch/data
-      mem_limit: 2g
-      restart: unless-stopped
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.26
+    container_name: medicine-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+    mem_limit: 2g
+    healthcheck:
+      # yellow достатньо для одного вузла (репліки не розміщуються)
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 30s
+    restart: unless-stopped
 
-    redis:
-      image: redis:7.4-alpine
-      container_name: medicine-redis
-      ports:
-        - "127.0.0.1:6379:6379"
-      healthcheck:
-        test: [ "CMD", "redis-cli", "ping" ]
-        interval: 5s
-        timeout: 3s
-        retries: 10
-      restart: unless-stopped
+  redis:
+    image: redis:7.4-alpine
+    container_name: medicine-redis
+    # Redis тут лише кеш: без збереження на диск, витіснення найстаріших ключів при нестачі пам'яті
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
 
-  volumes:
-    elastic_data:
+volumes:
+  elastic_data:

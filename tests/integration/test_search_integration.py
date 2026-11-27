@@ -24,6 +24,8 @@ from app.presentation.rest.search_controller import SearchController
 async def elastic():
     name = f"medicine_it_{uuid4().hex}"
     async with AsyncElasticsearch("http://127.0.0.1:9200", request_timeout=30) as client:
+        if not await client.ping():
+            pytest.skip("Elasticsearch недоступний (127.0.0.1:9200)")
         adapter = SearchIndexAdapter(client, name)
         try:
             await adapter.ensure_index()
@@ -37,7 +39,10 @@ async def redis_client():
     client = Redis.from_url("redis://127.0.0.1:6379", decode_responses=True,
                             socket_connect_timeout=5, socket_timeout=5)
     try:
-        assert await client.ping()
+        try:
+            await client.ping()
+        except Exception as exc:
+            pytest.skip(f"Redis недоступний (127.0.0.1:6379): {exc}")
         yield client
     finally:
         await client.aclose()
@@ -48,7 +53,10 @@ async def mongo():
     name = f"medicine_it_{uuid4().hex}"
     client = AsyncMongoClient("mongodb://127.0.0.1:27017", serverSelectionTimeoutMS=5000)
     try:
-        await client.admin.command("ping")
+        try:
+            await client.admin.command("ping")
+        except Exception as exc:
+            pytest.skip(f"MongoDB недоступна (127.0.0.1:27017): {exc}")
         try:
             yield client, name
         finally:
@@ -168,4 +176,4 @@ async def test_search_api_miss_hit_and_filters(elastic, redis_client, mongo):
         assert sorted(log["cache_hit"] for log in logs) == [False, True]
         assert all(log["results_count"] == 1 for log in logs)
     finally:
-        await redis_client.delete(key)
+        await redis_client.delete(key)

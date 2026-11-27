@@ -19,3 +19,7 @@ class ValidationError(DomainError):
     def __init__(self, errors: list[str]) -> None:
         super().__init__("; ".join(errors))
         self.errors = errors
+
+
+class SearchUnavailableError(DomainError):
+    """Пошуковий індекс недоступний або не відповів вчасно."""
